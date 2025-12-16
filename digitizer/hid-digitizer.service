@@ -1,0 +1,26 @@
+[Unit]
+Description=HID Digitizer Controller Service
+Documentation=https://github.com/yourusername/touchless-hid-digitizer
+After=usb-gadget.service network.target
+Requires=usb-gadget.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hid-digitizer
+ExecStart=/usr/bin/python3 /opt/hid-digitizer/main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target
