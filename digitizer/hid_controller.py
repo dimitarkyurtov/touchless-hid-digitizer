@@ -7,7 +7,7 @@ HID gadget device.
 
 HID Report Format (6 bytes):
     Byte 0:    Report ID (always 0x01, required by HID descriptor)
-    Byte 1:    Button states (bit 0: tip/left click, bit 1: in-range)
+    Byte 1:    Button states (bit 0: left click/button 1, bit 1: right click/button 2)
     Bytes 2-3: X coordinate (16-bit unsigned little-endian, 0-32767)
     Bytes 4-5: Y coordinate (16-bit unsigned little-endian, 0-32767)
 
@@ -168,11 +168,11 @@ class HIDController:
         #         H = unsigned short (16-bit)
         #
         # HID descriptor expects Report ID = 1 as first byte
-        # Then: button bits (Tip Switch + In Range + padding), X, Y
+        # Then: button bits (Button 1, Button 2), X, Y
         report = struct.pack(
             '<BBHH',
             1,                    # Byte 0: Report ID (required by HID descriptor)
-            buttons | (0x02 if in_range else 0x00),  # Byte 1: Tip Switch (bit 0) + In Range (bit 1)
+            buttons,              # Byte 1: Button 1 (bit 0), Button 2 (bit 1)
             x,                    # Bytes 2-3: X coordinate
             y,                    # Bytes 4-5: Y coordinate
         )

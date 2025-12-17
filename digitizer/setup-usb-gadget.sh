@@ -30,34 +30,33 @@ CONFIG_NAME="c.1"
 MAX_POWER="250"  # mA
 
 # HID Configuration
-HID_PROTOCOL="1"     # Mouse protocol (generic)
-HID_SUBCLASS="0"     # No subclass
-HID_REPORT_LENGTH="8"
+HID_PROTOCOL="2"     # Mouse protocol
+HID_SUBCLASS="1"     # Boot interface subclass (mouse)
+HID_REPORT_LENGTH="6"
 
-# HID Report Descriptor for Digitizer
-# This descriptor defines a standard USB HID digitizer with:
-# - Usage Page: 0x0D (Digitizer)
-# - Usage: 0x04 (Touch Screen)
+# HID Report Descriptor for Mouse/Pointer
+# This descriptor defines an absolute positioning mouse device:
+# - Usage Page: 0x01 (Generic Desktop)
+# - Usage: 0x02 (Mouse) with absolute coordinates
 # - Absolute X/Y coordinates (0-32767)
-# - Two buttons: Tip Switch (left/touch) and Barrel Switch (right click)
-# - In-range indicator
+# - Two buttons: Button 1 (left click) and Button 2 (right click)
 #
-# Report format (8 bytes):
-# [0]   : Button states (bit 0: tip, bit 1: barrel)
-# [1-2] : X coordinate (16-bit little-endian)
-# [3-4] : Y coordinate (16-bit little-endian)
-# [5-6] : Reserved (0x0000)
-# [7]   : In-range indicator
+# Report format (6 bytes):
+# [0]   : Report ID (0x01)
+# [1]   : Button states (bit 0: button 1, bit 1: button 2)
+# [2-3] : X coordinate (16-bit little-endian)
+# [4-5] : Y coordinate (16-bit little-endian)
 
 HID_REPORT_DESC="
-05 0d                    // Usage Page (Digitizer)
-09 04                    // Usage (Touch Screen)
+05 01                    // Usage Page (Generic Desktop)
+09 02                    // Usage (Mouse)
 a1 01                    // Collection (Application)
 85 01                    //   Report ID (1)
-09 22                    //   Usage (Finger)
-a1 02                    //   Collection (Logical)
-09 42                    //     Usage (Tip Switch)
-09 32                    //     Usage (In Range)
+09 01                    //   Usage (Pointer)
+a1 00                    //   Collection (Physical)
+05 09                    //     Usage Page (Button)
+19 01                    //     Usage Minimum (Button 1)
+29 02                    //     Usage Maximum (Button 2)
 15 00                    //     Logical Minimum (0)
 25 01                    //     Logical Maximum (1)
 75 01                    //     Report Size (1 bit)
@@ -71,9 +70,6 @@ a1 02                    //   Collection (Logical)
 09 31                    //     Usage (Y)
 16 00 00                 //     Logical Minimum (0)
 26 ff 7f                 //     Logical Maximum (32767)
-36 00 00                 //     Physical Minimum (0)
-46 ff 7f                 //     Physical Maximum (32767)
-66 00 00                 //     Unit (None)
 75 10                    //     Report Size (16 bits)
 95 02                    //     Report Count (2)
 81 02                    //     Input (Data, Variable, Absolute)
