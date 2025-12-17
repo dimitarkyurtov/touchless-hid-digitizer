@@ -1,6 +1,6 @@
 [Unit]
 Description=HID Digitizer Controller Service
-Documentation=https://github.com/yourusername/touchless-hid-digitizer
+Documentation=https://github.com/dimitarkyurtov/touchless-hid-digitizer
 After=usb-gadget.service network.target
 Requires=usb-gadget.service
 Wants=network.target

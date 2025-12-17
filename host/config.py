@@ -52,7 +52,7 @@ MAX_COORDINATE = 32767
 WINDOW_TITLE = "HID Digitizer Controller"
 WINDOW_WIDTH = 500
 WINDOW_HEIGHT = 400
-WINDOW_RESIZABLE = False
+WINDOW_RESIZABLE = True
 
 # Default coordinate values
 DEFAULT_X = 16384  # Center X (32767 / 2)

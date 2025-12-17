@@ -1,6 +1,6 @@
 [Unit]
 Description=USB Gadget HID Digitizer Setup
-Documentation=https://github.com/yourusername/touchless-hid-digitizer
+Documentation=https://github.com/dimitarkyurtov/touchless-hid-digitizer
 After=local-fs.target
 Before=hid-digitizer.service
 DefaultDependencies=no
