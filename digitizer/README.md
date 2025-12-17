@@ -41,17 +41,20 @@ Or copy the `digitizer/` and `common/` directories manually via SCP/SFTP.
 
 ### Step 2: Install Python Dependencies
 
-```bash
-cd digitizer
-pip3 install -r requirements.txt
-```
+**IMPORTANT**: Use a virtual environment to avoid conflicts with system packages.
 
 ### Step 3: Enable USB Gadget Mode
 
 Edit the boot configuration to enable the dwc2 USB driver:
 
+**Note**: On newer Raspberry Pi OS, the config file is at `/boot/firmware/config.txt` instead of `/boot/config.txt`.
+
 ```bash
-sudo nano /boot/config.txt
+# For newer Raspberry Pi OS (bookworm and later)
+sudo nano /boot/firmware/config.txt
+
+# For older Raspberry Pi OS
+# sudo nano /boot/config.txt
 ```
 
 Add this line at the end:
@@ -62,19 +65,22 @@ dtoverlay=dwc2
 
 Save and exit (Ctrl+X, then Y, then Enter).
 
-Edit the modules configuration:
+Edit the modules configuration to load required kernel modules:
 
 ```bash
 sudo nano /etc/modules
 ```
 
-Add this line at the end:
+Add these lines at the end:
 
 ```
 dwc2
+libcomposite
 ```
 
 Save and exit.
+
+**Important**: The `libcomposite` module is required for USB gadget configfs support.
 
 ### Step 4: Copy Application Files
 
@@ -416,7 +422,7 @@ Run the application directly for debugging:
 
 ```bash
 cd /opt/hid-digitizer
-sudo python3 main.py
+sudo venv/bin/python3 main.py
 ```
 
 Press Ctrl+C to stop.

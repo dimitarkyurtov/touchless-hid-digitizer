@@ -168,7 +168,7 @@ class HIDController:
         # Format: B = unsigned byte (8-bit)
         #         H = unsigned short (16-bit)
         report = struct.pack(
-            '<BHHHHB',
+            '<BHHHB',
             buttons,              # Byte 0: button states
             x,                    # Bytes 1-2: X coordinate
             y,                    # Bytes 3-4: Y coordinate
@@ -222,7 +222,18 @@ class HIDController:
                 f"in_range={in_range}"
             )
 
-        except IOError as e:
+        except BrokenPipeError as e:
+            # This happens when no host is connected via USB
+            # Log as warning and continue - service should still run
+            self.logger.warning(
+                f"HID report not sent - no USB host connected: {e}"
+            )
+            # Still update state for when host reconnects
+            self.current_x = x
+            self.current_y = y
+            self.current_buttons = buttons
+
+        except (IOError, OSError) as e:
             self.logger.error(f"Failed to send HID report: {e}")
             raise
 
