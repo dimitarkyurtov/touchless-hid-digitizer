@@ -5,12 +5,11 @@ USB HID Digitizer specification. It provides an interface for sending cursor
 movement and button click events to the host operating system via the USB
 HID gadget device.
 
-HID Report Format (8 bytes):
-    Byte 0:   Button states (bit 0: tip/left click, bit 1: barrel/right click)
-    Bytes 1-2: X coordinate (16-bit unsigned little-endian, 0-32767)
-    Bytes 3-4: Y coordinate (16-bit unsigned little-endian, 0-32767)
-    Bytes 5-6: Reserved (always 0x0000)
-    Byte 7:   In-range indicator (0x01 when active, 0x00 when out of range)
+HID Report Format (6 bytes):
+    Byte 0:    Report ID (always 0x01, required by HID descriptor)
+    Byte 1:    Button states (bit 0: tip/left click, bit 1: in-range)
+    Bytes 2-3: X coordinate (16-bit unsigned little-endian, 0-32767)
+    Bytes 4-5: Y coordinate (16-bit unsigned little-endian, 0-32767)
 
 The HID controller maintains state of the current cursor position and button
 states to support relative operations and click events at the current position.
@@ -167,13 +166,15 @@ class HIDController:
         # Pack report using little-endian format
         # Format: B = unsigned byte (8-bit)
         #         H = unsigned short (16-bit)
+        #
+        # HID descriptor expects Report ID = 1 as first byte
+        # Then: button bits (Tip Switch + In Range + padding), X, Y
         report = struct.pack(
-            '<BHHHB',
-            buttons,              # Byte 0: button states
-            x,                    # Bytes 1-2: X coordinate
-            y,                    # Bytes 3-4: Y coordinate
-            0,                    # Bytes 5-6: reserved
-            1 if in_range else 0,  # Byte 7: in-range indicator
+            '<BBHH',
+            1,                    # Byte 0: Report ID (required by HID descriptor)
+            buttons | (0x02 if in_range else 0x00),  # Byte 1: Tip Switch (bit 0) + In Range (bit 1)
+            x,                    # Bytes 2-3: X coordinate
+            y,                    # Bytes 4-5: Y coordinate
         )
 
         # Verify report size matches configuration

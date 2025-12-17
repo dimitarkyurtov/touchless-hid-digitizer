@@ -53,7 +53,7 @@ SERIAL_BAUDRATE = 115200
 SERIAL_TIMEOUT = 1.0  # seconds
 
 # HID report settings
-REPORT_SIZE = 8  # bytes
+REPORT_SIZE = 6  # bytes (Report ID + buttons + X + Y)
 HID_REPORT_INTERVAL = 0.001  # seconds between reports (1ms)
 
 # Button bit masks (for HID report byte 0)
