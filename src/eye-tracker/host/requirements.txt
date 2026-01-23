@@ -1,0 +1,11 @@
+pyserial>=3.5
+h5py
+wget
+torch
+numpy
+Pillow
+matplotlib
+torchvision
+python-dateutil
+opencv-contrib-python
+opencv-python

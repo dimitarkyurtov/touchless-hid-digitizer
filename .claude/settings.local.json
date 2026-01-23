@@ -1,6 +1,23 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(/opt/homebrew/bin/python3.10:*)",
+      "Bash(python -c:*)",
+      "Bash(./venv/bin/python:*)",
+      "Bash(./venv/bin/pip install:*)",
+      "WebSearch",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(python:*)",
+      "Bash(chmod:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "context7"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

@@ -1,0 +1,1 @@
+The neural network in this directory was created from this repository - https://github.com/glefundes/mobile-face-gaze by adding macOS support and using the modified `gazenet.py` which is located in this folder.

@@ -1,0 +1,16 @@
+[Unit]
+Description=USB Gadget HID Digitizer Setup
+Documentation=https://github.com/dimitarkyurtov/touchless-hid-digitizer
+After=local-fs.target
+Before=hid-digitizer.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/setup-usb-gadget.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=sysinit.target
