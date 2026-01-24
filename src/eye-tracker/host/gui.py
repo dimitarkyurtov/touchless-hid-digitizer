@@ -37,6 +37,7 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+import torch
 from camera import Camera
 
 # Add parent directory to path to import common module
@@ -345,9 +346,10 @@ class HIDDigitizerGUI:
         eye_tracker_frame.grid(row=start_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, PADDING))
 
         # Configure grid
-        for i in range(3):
+        for i in range(5):
             eye_tracker_frame.columnconfigure(i, weight=1)
 
+        # Row 0: Control buttons
         # Start button
         ttk.Button(
             eye_tracker_frame,
@@ -371,6 +373,40 @@ class HIDDigitizerGUI:
             command=self.start_calibration,
             width=BUTTON_WIDTH
         ).grid(row=0, column=2, padx=5, pady=5)
+
+        # Row 1: Gaze Vector inputs
+        ttk.Label(eye_tracker_frame, text="Gaze Vector:").grid(row=1, column=0, sticky=tk.W, padx=(5, 5), pady=(10, 5))
+
+        self.gaze_pitch_var = tk.StringVar()
+        pitch_entry = ttk.Entry(eye_tracker_frame, textvariable=self.gaze_pitch_var, width=10)
+        pitch_entry.grid(row=1, column=1, sticky=tk.W, padx=(0, 5), pady=(10, 5))
+        ttk.Label(eye_tracker_frame, text="Pitch", font=('TkDefaultFont', 8)).grid(row=1, column=2, sticky=tk.W, padx=(0, 5), pady=(10, 5))
+
+        self.gaze_yaw_var = tk.StringVar()
+        yaw_entry = ttk.Entry(eye_tracker_frame, textvariable=self.gaze_yaw_var, width=10)
+        yaw_entry.grid(row=1, column=3, sticky=tk.W, padx=(0, 5), pady=(10, 5))
+        ttk.Label(eye_tracker_frame, text="Yaw", font=('TkDefaultFont', 8)).grid(row=1, column=4, sticky=tk.W, padx=(0, 5), pady=(10, 5))
+
+        # Row 2: Gaze Origin inputs
+        ttk.Label(eye_tracker_frame, text="Gaze Origin:").grid(row=2, column=0, sticky=tk.W, padx=(5, 5), pady=5)
+
+        self.gaze_origin_x_var = tk.StringVar()
+        origin_x_entry = ttk.Entry(eye_tracker_frame, textvariable=self.gaze_origin_x_var, width=10)
+        origin_x_entry.grid(row=2, column=1, sticky=tk.W, padx=(0, 5), pady=5)
+        ttk.Label(eye_tracker_frame, text="X", font=('TkDefaultFont', 8)).grid(row=2, column=2, sticky=tk.W, padx=(0, 5), pady=5)
+
+        self.gaze_origin_y_var = tk.StringVar()
+        origin_y_entry = ttk.Entry(eye_tracker_frame, textvariable=self.gaze_origin_y_var, width=10)
+        origin_y_entry.grid(row=2, column=3, sticky=tk.W, padx=(0, 5), pady=5)
+        ttk.Label(eye_tracker_frame, text="Y", font=('TkDefaultFont', 8)).grid(row=2, column=4, sticky=tk.W, padx=(0, 5), pady=5)
+
+        # Row 3: Simulate button
+        ttk.Button(
+            eye_tracker_frame,
+            text="Simulate",
+            command=self._simulate_gaze,
+            width=BUTTON_WIDTH
+        ).grid(row=3, column=0, columnspan=5, padx=5, pady=(10, 5))
 
         return start_row + 1
 
@@ -660,10 +696,72 @@ class HIDDigitizerGUI:
             y = int((y /screen_height) * 32767)
             y = min(max(y, 0), 32767)
             self.set_coordinates(x, y)
-            self.logger.info(f"Gaze vector mapped to ({x}, {y})")
+            self.logger.info(f"Gaze vector: {gaze_vector} with origin: {gaze_origin} mapped to ({x}, {y})")
             self.serial_client.move(x, y)
         else:
             self.logger.debug("No face detected in frame")
+
+    def _simulate_gaze(self) -> None:
+        """Simulate gaze input using manual gaze vector and origin values.
+
+        Reads pitch, yaw, and gaze origin (x, y) from GUI input fields,
+        constructs the gaze vector tensor and origin array, then predicts
+        the screen position and sends movement command.
+        """
+        # Check if eye tracker is initialized and calibrated
+        if self.eye_tracker is None:
+            messagebox.showerror(
+                "Error",
+                "Eye tracker not initialized. Please run calibration first."
+            )
+            return
+
+        try:
+            # Parse input values
+            pitch = float(self.gaze_pitch_var.get())
+            yaw = float(self.gaze_yaw_var.get())
+            origin_x = float(self.gaze_origin_x_var.get())
+            origin_y = float(self.gaze_origin_y_var.get())
+
+            # Create gaze_vector tensor (1, 2) from [pitch, yaw]
+            gaze_vector = torch.tensor([[pitch, yaw]], dtype=torch.float32)
+
+            # Create gaze_origin numpy array (2,) from [x, y]
+            gaze_origin = np.array([origin_x, origin_y], dtype=np.float32)
+
+            # Use same logic as _process_frame (lines 652-664)
+            x, y = self.eye_tracker.predict_screen_position(gaze_vector, gaze_origin)
+
+            # Get screen dimensions
+            screen_width = self.screen_width
+            screen_height = self.screen_height
+
+            # Convert to digitizer coordinates (0-32767)
+            x = int((x / screen_width) * 32767)
+            x = min(max(x, 0), 32767)
+            y = int((y / screen_height) * 32767)
+            y = min(max(y, 0), 32767)
+
+            # Update GUI and send command
+            self.set_coordinates(x, y)
+            self.logger.info(
+                f"Simulated gaze vector: {gaze_vector} with origin: {gaze_origin} "
+                f"mapped to ({x}, {y})"
+            )
+            self.serial_client.move(x, y)
+
+        except ValueError as e:
+            messagebox.showerror(
+                "Error",
+                f"Invalid input values. All fields must be valid numbers.\n\n{e}"
+            )
+            self.logger.error(f"Failed to parse gaze simulation inputs: {e}")
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to simulate gaze: {e}"
+            )
+            self.logger.error(f"Error in gaze simulation: {e}")
 
     def stop_eye_tracking(self) -> None:
         self.camera.stop()
@@ -822,8 +920,11 @@ class HIDDigitizerGUI:
 
                 # Add text overlay with calibration info
                 text = f"Point {self._calibration_index + 1}: Target=({screen_point[0]}, {screen_point[1]})"
+                text2 = f"Gaze vector: ({gaze_np[0]:.2f}, {gaze_np[1]:.2f}), Gaze origin: ({gaze_origin[0]}, {gaze_origin[1]})"
                 cv2.putText(debug_frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                           0.7, (255, 255, 255), 2)
+                           0.7, (255, 0, 0), 2)
+                cv2.putText(debug_frame, text2, (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.7, (255, 0, 0), 2)
 
                 # Convert RGB back to BGR for saving
                 debug_frame_bgr = debug_frame[:, :, ::-1]

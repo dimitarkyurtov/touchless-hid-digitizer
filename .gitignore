@@ -7,4 +7,4 @@ env/
 __pycache__/
 *.py[cod]
 
-calibration_results/
+*calibration_debug/

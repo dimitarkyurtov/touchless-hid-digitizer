@@ -50,8 +50,8 @@ MAX_COORDINATE = 32767
 
 # GUI settings
 WINDOW_TITLE = "HID Digitizer Controller"
-WINDOW_WIDTH = 655
-WINDOW_HEIGHT = 560
+WINDOW_WIDTH = 755
+WINDOW_HEIGHT = 660
 WINDOW_RESIZABLE = False
 
 # Default coordinate values
@@ -74,3 +74,13 @@ STATUS_COLOR_ERROR = "orange"
 
 # Logging
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Eye tracking calibration mode
+# True: use gaze vector (pitch, yaw) + gaze origin (x, y) for polynomial regression (15 features, needs >= 15 points)
+# False: use only gaze vector (pitch, yaw) for polynomial regression (6 features, needs >= 6 points)
+USE_GAZE_ORIGIN = False
+
+# Gaze model selection
+# "gazenet": Use custom GazeNet model with MTCNN face detection (default)
+# "pygaze": Use PyGaze library for gaze angle prediction
+GAZE_MODEL = "gazenet"  # or "pygaze"

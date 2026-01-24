@@ -6,6 +6,8 @@ face normalization for accurate gaze estimation.
 
 """
 
+from __future__ import annotations
+
 import logging
 import sys
 from pathlib import Path
@@ -15,11 +17,20 @@ import numpy as np
 import torch
 from PIL import Image
 
-_MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "neural_nets" / "gaze_vector"
-sys.path.insert(0, str(_MODEL_DIR))
+# Import configuration
+from config import USE_GAZE_ORIGIN, GAZE_MODEL
 
-from gazenet import GazeNet
-from mtcnn.detector import FaceDetector
+# Conditional imports based on gaze model
+if GAZE_MODEL == "gazenet":
+    _MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "neural_nets" / "gaze_vector"
+    sys.path.insert(0, str(_MODEL_DIR))
+
+    from gazenet import GazeNet
+    from mtcnn.detector import FaceDetector
+elif GAZE_MODEL == "pygaze":
+    from pygaze import PyGaze
+else:
+    raise ValueError(f"Invalid GAZE_MODEL: {GAZE_MODEL}. Must be 'gazenet' or 'pygaze'.")
 
 
 class EyeTracker:
@@ -33,54 +44,61 @@ class EyeTracker:
     """
 
     def __init__(self) -> None:
-        """Initialize eye tracker and load pre-trained GazeNet model.
+        """Initialize eye tracker and load gaze model based on configuration.
 
-        Args:
-            model_dir: Path to directory containing gazenet.py and gazenet.pth.
-                The directory must contain both the model definition file
-                (gazenet.py) and the trained weights file (gazenet.pth).
+        Initializes either GazeNet or PyGaze based on the GAZE_MODEL config setting.
 
         Raises:
-            FileNotFoundError: If model_dir, gazenet.py, or gazenet.pth
-                does not exist.
-            ImportError: If gazenet module cannot be imported.
-            RuntimeError: If model weights cannot be loaded.
+            FileNotFoundError: If model files do not exist (GazeNet only).
+            ImportError: If required modules cannot be imported.
+            RuntimeError: If model weights cannot be loaded (GazeNet only).
         """
         self.logger: logging.Logger = logging.getLogger(__name__)
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
-        self.logger.info(f"Using device: {self.device}")
-
-        try:
-            self.model = GazeNet(self.device)
-            self.logger.info("GazeNet model instantiated")
-        except Exception as e:
-            self.logger.error(f"Failed to instantiate GazeNet: {e}")
-            raise RuntimeError(
-                f"Could not instantiate GazeNet model: {e}"
-            ) from e
-
-        try:
-            weights_path = str(_MODEL_DIR / "gazenet.pth")
-            state_dict = torch.load(
-                weights_path,
-                map_location=self.device,
-                weights_only=True
+        if GAZE_MODEL == "gazenet":
+            self.device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
             )
-            self.model.load_state_dict(state_dict)
-            self.logger.info(f"Loaded model weights from {weights_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to load model weights: {e}")
-            raise RuntimeError(
-                f"Could not load model weights from {weights_path}: {e}"
-            ) from e
+            self.logger.info(f"Using device: {self.device}")
 
-        # Set model to evaluation mode (disables dropout, batch norm, etc.)
-        self.model.eval()
+            try:
+                self.model = GazeNet(self.device)
+                self.logger.info("GazeNet model instantiated")
+            except Exception as e:
+                self.logger.error(f"Failed to instantiate GazeNet: {e}")
+                raise RuntimeError(
+                    f"Could not instantiate GazeNet model: {e}"
+                ) from e
 
-        self.face_detector = FaceDetector(self.device)
+            try:
+                weights_path = str(_MODEL_DIR / "gazenet.pth")
+                state_dict = torch.load(
+                    weights_path,
+                    map_location=self.device,
+                    weights_only=True
+                )
+                self.model.load_state_dict(state_dict)
+                self.logger.info(f"Loaded model weights from {weights_path}")
+            except Exception as e:
+                self.logger.error(f"Failed to load model weights: {e}")
+                raise RuntimeError(
+                    f"Could not load model weights from {weights_path}: {e}"
+                ) from e
+
+            # Set model to evaluation mode (disables dropout, batch norm, etc.)
+            self.model.eval()
+
+            self.face_detector = FaceDetector(self.device)
+
+        elif GAZE_MODEL == "pygaze":
+            try:
+                self.pygaze = PyGaze()
+                self.logger.info("PyGaze model instantiated")
+            except Exception as e:
+                self.logger.error(f"Failed to instantiate PyGaze: {e}")
+                raise RuntimeError(
+                    f"Could not instantiate PyGaze model: {e}"
+                ) from e
 
         # Calibration state
         self._calibration_gaze_vectors: list[np.ndarray] = []
@@ -92,8 +110,8 @@ class EyeTracker:
     def get_gaze_vector(self, frame: np.ndarray) -> tuple[torch.Tensor, np.ndarray] | None:
         """Detect face in frame and predict gaze vector.
 
-        Runs face detection, normalizes the detected face, and predicts
-        the gaze vector using the GazeNet model.
+        Runs face detection and gaze prediction using either GazeNet or PyGaze
+        based on the GAZE_MODEL configuration.
 
         Args:
             frame: Input video frame as numpy array (BGR format from OpenCV).
@@ -103,21 +121,50 @@ class EyeTracker:
             tensor of shape (1, 2) and gaze_origin is a numpy array of shape (2,)
             in frame pixel coordinates, or None if no face is detected.
         """
-        faces, landmarks = self.face_detector.detect(Image.fromarray(frame))
+        if GAZE_MODEL == "gazenet":
+            faces, landmarks = self.face_detector.detect(Image.fromarray(frame))
 
-        if len(faces) == 0:
+            if len(faces) == 0:
+                return None
+
+            for f, lm in zip(faces, landmarks):
+                if f[-1] > 0.98:
+                    face, gaze_origin, _ = self.normalize_face(lm, frame)
+
+                    with torch.no_grad():
+                        gaze = self.model.get_gaze(face)
+                        gaze = gaze[0].data.cpu()
+
+                    return (gaze, np.array(gaze_origin, dtype=np.int32))
+
             return None
 
-        for f, lm in zip(faces, landmarks):
-            if f[-1] > 0.98:
-                face, gaze_origin, _ = self.normalize_face(lm, frame)
+        elif GAZE_MODEL == "pygaze":
+            # PyGaze expects RGB format, OpenCV provides BGR
+            gaze_result = self.pygaze.predict(frame)
 
-                with torch.no_grad():
-                    gaze = self.model.get_gaze(face)
-                    gaze = gaze[0].data.cpu()
+            if len(gaze_result) == 0:
+                return None
 
-                origin = np.array(gaze_origin, dtype=np.float64)
-                return (gaze, gaze_origin)
+            # Use the first detected face
+            face = gaze_result[0]
+            g_pitch, g_yaw = face.get_gaze_angles()
+
+            # Convert to torch tensor of shape (2,) to match GazeNet format
+            gaze_vector = torch.tensor([g_pitch, g_yaw], dtype=torch.float32)
+
+            # Try to get face bounding box center as gaze origin
+            # If not available, use frame center
+            try:
+                if hasattr(face, 'bbox'):
+                    x1, y1, x2, y2 = face.bbox
+                    gaze_origin = np.array([(x1 + x2) // 2, (y1 + y2) // 2], dtype=np.int32)
+                else:
+                    gaze_origin = np.array([frame.shape[1] // 2, frame.shape[0] // 2], dtype=np.int32)
+            except Exception:
+                gaze_origin = np.array([frame.shape[1] // 2, frame.shape[0] // 2], dtype=np.int32)
+
+            return (gaze_vector, gaze_origin)
 
         return None
 
@@ -173,6 +220,23 @@ class EyeTracker:
             o1**2
         ])
 
+    def _polynomial_features_gaze_only(self, gaze: np.ndarray) -> np.ndarray:
+        """Compute 2nd degree polynomial features from gaze vector only.
+
+        Args:
+            gaze: Gaze vector as numpy array of shape (2,) (pitch, yaw).
+
+        Returns:
+            Feature vector of shape (6,): [1, g0, g1, g0², g0*g1, g1²].
+        """
+        g0, g1 = gaze
+        return np.array([
+            1.0,
+            g0, g1,
+            g0**2, g0*g1,
+            g1**2
+        ])
+
     def add_calibration_point(
         self, gaze_vector: torch.Tensor, gaze_origin: np.ndarray,
         screen_point: tuple[float, float]
@@ -199,20 +263,33 @@ class EyeTracker:
         Uses 2nd degree polynomial features and least squares to compute
         mapping coefficients for both X and Y screen coordinates.
 
+        The minimum number of points and feature computation depend on the
+        USE_GAZE_ORIGIN configuration setting.
+
         Raises:
-            ValueError: If fewer than 15 calibration points have been collected.
+            ValueError: If fewer than required calibration points have been collected
+                (15 points if USE_GAZE_ORIGIN=True, 6 points if USE_GAZE_ORIGIN=False).
         """
         n_points = len(self._calibration_gaze_vectors)
-        if n_points < 15:
+        min_points = 15 if USE_GAZE_ORIGIN else 6
+
+        if n_points < min_points:
             raise ValueError(
-                f"Need at least 15 calibration points, got {n_points}"
+                f"Need at least {min_points} calibration points "
+                f"(USE_GAZE_ORIGIN={USE_GAZE_ORIGIN}), got {n_points}"
             )
 
-        # Build feature matrix: each row is polynomial features of gaze vector + origin
-        X = np.array(
-            [self._polynomial_features(g, o)
-             for g, o in zip(self._calibration_gaze_vectors, self._calibration_origins)]
-        )
+        # Build feature matrix using appropriate feature function
+        if USE_GAZE_ORIGIN:
+            X = np.array(
+                [self._polynomial_features(g, o)
+                 for g, o in zip(self._calibration_gaze_vectors, self._calibration_origins)]
+            )
+        else:
+            X = np.array(
+                [self._polynomial_features_gaze_only(g)
+                 for g in self._calibration_gaze_vectors]
+            )
 
         # Build target matrices for screen X and Y coordinates
         screen_x = np.array([pt[0] for pt in self._calibration_screen_points])
@@ -223,7 +300,7 @@ class EyeTracker:
         self._coeff_y, _, _, _ = np.linalg.lstsq(X, screen_y, rcond=None)
 
         self.logger.info(
-            f"Calibration complete with {n_points} points. "
+            f"Calibration complete with {n_points} points (USE_GAZE_ORIGIN={USE_GAZE_ORIGIN}). "
             f"Coefficients computed for X and Y mappings."
         )
 
@@ -235,6 +312,7 @@ class EyeTracker:
         Args:
             gaze_vector: Gaze vector tensor of shape (1, 2) (pitch, yaw).
             gaze_origin: Normalized gaze origin as numpy array of shape (2,) [0, 1].
+                This parameter is only used if USE_GAZE_ORIGIN=True.
 
         Returns:
             Screen coordinates (x_pixels, y_pixels) as floats.
@@ -246,7 +324,12 @@ class EyeTracker:
             raise RuntimeError("Calibration has not been performed. Call calibrate() first.")
 
         gaze_np = gaze_vector.cpu().numpy().squeeze()  # Convert to (2,)
-        features = self._polynomial_features(gaze_np, gaze_origin)
+
+        # Compute features based on configuration
+        if USE_GAZE_ORIGIN:
+            features = self._polynomial_features(gaze_np, gaze_origin)
+        else:
+            features = self._polynomial_features_gaze_only(gaze_np)
 
         screen_x = np.dot(features, self._coeff_x)
         screen_y = np.dot(features, self._coeff_y)
