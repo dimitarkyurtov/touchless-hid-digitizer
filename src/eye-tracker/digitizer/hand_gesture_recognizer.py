@@ -16,6 +16,7 @@ Uses MediaPipe Tasks Hand Landmarker to detect finger-thumb touch gestures:
 
 import logging
 import urllib.request
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,8 +25,24 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import numpy as np
+from skimage.transform import resize
 
 from gesture_types import GestureType
+
+# Force TensorFlow to use CPU only (for Raspberry Pi compatibility)
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TF info messages
+
+# Optional TensorFlow import for LSTM gesture recognition
+try:
+    import tensorflow as tf
+    # Disable GPU devices to force CPU inference
+    tf.config.set_visible_devices([], 'GPU')
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    tf = None
 
 
 class HandGestureRecognizer:
@@ -67,7 +84,22 @@ class HandGestureRecognizer:
     )
     MODEL_FILENAME = "hand_landmarker.task"
     # Model directory relative to project root (src/neural_nets/hand_landmarker/)
-    MODEL_DIR = Path(__file__).parent.parent.parent.parent / "neural_nets" / "hand_landmarker"
+    MODEL_DIR = Path(__file__).parent.parent.parent / "neural_nets" / "hand_landmarker"
+
+    # LSTM model configuration for continuous gestures (ThumbsUp, ThumbsDown)
+    LSTM_MODEL_DIR = Path(__file__).parent.parent.parent / "neural_nets" / "hand_gesture_recongnizer"
+    LSTM_MODEL_FILENAME = "hand_gesture_recognizer_model.h5"
+    LSTM_FRAMES = 10  # Number of frames required for LSTM sequence
+    LSTM_ROWS = 120  # LSTM model input height
+    LSTM_COLS = 120  # LSTM model input width
+    LSTM_CHANNELS = 3  # RGB channels
+    # Only gestures we care about from the LSTM model (indices from training)
+    LSTM_GESTURE_LABELS = {
+        3: GestureType.ThumbsDown,
+        4: GestureType.ThumbsUp,
+    }
+    # Cooldown period (in frames) to avoid rapid repeated detections
+    LSTM_COOLDOWN_FRAMES = 20
 
     def __init__(
         self,
@@ -77,6 +109,10 @@ class HandGestureRecognizer:
         min_detection_confidence: float = 0.7,
         min_tracking_confidence: float = 0.5,
         model_path: Optional[Path] = None,
+        lstm_model_path: Optional[Path] = None,
+        lstm_confidence_threshold: float = 0.95,
+        enable_continuous_gestures: bool = True,
+        lstm_frame_skip: int = 3,
     ) -> None:
         """Initialize the hand gesture recognizer.
 
@@ -87,7 +123,7 @@ class HandGestureRecognizer:
                 finger tips to register as a release (default: 0.10).
                 Must be greater than touch_threshold to create hysteresis.
             draw_landmarks: Whether to draw hand landmarks on frames for
-                debugging visualization (default: False).
+                debugging visualization (default: True).
             min_detection_confidence: Minimum confidence for hand detection
                 (default: 0.7).
             min_tracking_confidence: Minimum confidence for hand tracking
@@ -95,6 +131,16 @@ class HandGestureRecognizer:
             model_path: Path to the hand landmarker model file. If None,
                 uses MODEL_FILENAME in the same directory as this script.
                 Model will be downloaded automatically if not present.
+            lstm_model_path: Path to the LSTM gesture recognition model file.
+                If None, uses LSTM_MODEL_FILENAME in LSTM_MODEL_DIR.
+                Set to False to disable LSTM gesture recognition entirely.
+            lstm_confidence_threshold: Minimum confidence for LSTM gesture
+                detection (default: 0.7). Higher values reduce false positives.
+            enable_continuous_gestures: Enable LSTM-based continuous gesture
+                recognition (ThumbsUp, ThumbsDown). Requires TensorFlow
+                (default: True).
+            lstm_frame_skip: Process every Nth frame for LSTM inference to
+                reduce computational load (default: 3).
 
         Raises:
             RuntimeError: If model download fails or model initialization fails.
@@ -107,11 +153,23 @@ class HandGestureRecognizer:
         self.draw_landmarks: bool = draw_landmarks
         self.min_detection_confidence: float = min_detection_confidence
         self.min_tracking_confidence: float = min_tracking_confidence
+        self.lstm_confidence_threshold: float = lstm_confidence_threshold
+        self.lstm_frame_skip: int = lstm_frame_skip
 
         # Track button press state for event detection
         self._primary_pressed: bool = False
         self._secondary_pressed: bool = False
         self._tertiary_pressed: bool = False
+
+        # LSTM gesture recognition state
+        self.enable_continuous_gestures: bool = enable_continuous_gestures
+        self.lstm_model: Optional[Any] = None
+        self._lstm_frame_buffer: deque = deque(maxlen=self.LSTM_FRAMES)
+        self._lstm_frame_counter: int = 0
+        self._lstm_cooldown_counter: dict[GestureType, int] = {
+            GestureType.ThumbsUp: 0,
+            GestureType.ThumbsDown: 0,
+        }
 
         # Determine model path
         if model_path is None:
@@ -147,6 +205,13 @@ class HandGestureRecognizer:
             error_msg = f"Failed to initialize MediaPipe Hand Landmarker: {e}"
             self.logger.error(error_msg)
             raise RuntimeError(error_msg) from e
+
+        # Initialize LSTM model for continuous gestures
+        if enable_continuous_gestures and lstm_model_path is not False:
+            self._initialize_lstm_model(lstm_model_path)
+        else:
+            self.logger.info("LSTM continuous gesture recognition disabled")
+            self.enable_continuous_gestures = False
 
     def _ensure_model_available(self) -> None:
         """Ensure the hand landmarker model file is available.
@@ -184,12 +249,75 @@ class HandGestureRecognizer:
                 self.model_path.unlink()
             raise RuntimeError(error_msg) from e
 
+    def _initialize_lstm_model(self, lstm_model_path: Optional[Path]) -> None:
+        """Initialize the LSTM model for continuous gesture recognition.
+
+        Args:
+            lstm_model_path: Path to the LSTM model file. If None, uses
+                LSTM_MODEL_FILENAME in LSTM_MODEL_DIR.
+
+        Notes:
+            If TensorFlow is not available or model loading fails, disables
+            continuous gesture recognition and logs a warning instead of
+            raising an error.
+        """
+        # Check if TensorFlow is available
+        if not TENSORFLOW_AVAILABLE:
+            self.logger.warning(
+                "TensorFlow not available. LSTM continuous gesture "
+                "recognition disabled. Install tensorflow to enable: "
+                "pip install tensorflow"
+            )
+            self.enable_continuous_gestures = False
+            return
+
+        # Determine LSTM model path
+        if lstm_model_path is None:
+            lstm_model_path = self.LSTM_MODEL_DIR / self.LSTM_MODEL_FILENAME
+
+        lstm_model_path = Path(lstm_model_path)
+
+        # Check if model exists
+        if not lstm_model_path.exists():
+            self.logger.warning(
+                f"LSTM model not found at {lstm_model_path}. "
+                f"Continuous gesture recognition disabled. "
+                f"Place the model file at this location to enable ThumbsUp/"
+                f"ThumbsDown gestures."
+            )
+            self.enable_continuous_gestures = False
+            return
+
+        # Load the LSTM model
+        try:
+            self.logger.info(f"Loading LSTM model from {lstm_model_path}")
+            self.lstm_model = tf.keras.models.load_model(
+                str(lstm_model_path),
+                compile=False,  # Skip compilation for inference-only usage
+            )
+            self.logger.info(
+                f"LSTM model loaded successfully. Continuous gesture "
+                f"recognition enabled (confidence_threshold="
+                f"{self.lstm_confidence_threshold}, frame_skip="
+                f"{self.lstm_frame_skip})"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to load LSTM model from {lstm_model_path}: {e}. "
+                f"Continuous gesture recognition disabled."
+            )
+            self.enable_continuous_gestures = False
+            self.lstm_model = None
+
     def process_frame(self, frame: np.ndarray) -> list[GestureType]:
         """Process a single video frame and return detected gesture events.
 
         Analyzes the input frame to detect hand presence and generate gesture
         events based on state changes. Events are generated when buttons are
         pressed (finger touches thumb) or released (finger leaves thumb).
+
+        Also processes frames for LSTM-based continuous gesture recognition
+        (ThumbsUp, ThumbsDown) if enabled.
 
         Args:
             frame: Input video frame in BGR format (OpenCV standard).
@@ -198,13 +326,14 @@ class HandGestureRecognizer:
             List of detected gesture events for this frame. An empty list
             indicates no events occurred (no state changes). Multiple events
             can occur in a single frame (e.g., one button released while
-            another is pressed).
+            another is pressed, or finger-touch and continuous gestures).
 
         Notes:
             - Events are generated only on state changes, not while held.
             - Frame is converted to RGB for MediaPipe processing.
             - If draw_landmarks is True, landmarks are drawn on the input frame.
             - Button state is tracked across frames to detect press/release events.
+            - LSTM gestures are detected from sequences of frames.
         """
         self.frame_count += 1
 
@@ -259,11 +388,156 @@ class HandGestureRecognizer:
                 detected_events.append(GestureType.TertiaryButtonReleased)
                 self._tertiary_pressed = False
 
-        if detected_events:
+        # Process LSTM continuous gestures if enabled
+        lstm_events: list[GestureType] = []
+        if self.enable_continuous_gestures and self.lstm_model is not None:
+            # Add frame to LSTM buffer at intervals
+            self._lstm_frame_counter += 1
+            if self._lstm_frame_counter % self.lstm_frame_skip == 0:
+                try:
+                    preprocessed_frame = self._preprocess_frame_for_lstm(frame)
+                    self._lstm_frame_buffer.append(preprocessed_frame)
+                except Exception as e:
+                    self.logger.debug(f"LSTM frame preprocessing failed: {e}")
+
+            # Detect continuous gestures when buffer is full
+            if len(self._lstm_frame_buffer) == self.LSTM_FRAMES:
+                try:
+                    lstm_events = self._detect_continuous_gestures()
+                except Exception as e:
+                    self.logger.debug(f"LSTM gesture detection failed: {e}")
+
+        # Merge all detected events
+        all_events = detected_events + lstm_events
+
+        if all_events:
             self.logger.info(
-                f"Gesture events detected: {[str(evt) for evt in detected_events]}"
+                f"Gesture events detected: {[str(evt) for evt in all_events]}"
             )
-            self.last_events = detected_events
+            self.last_events = all_events
+
+        return all_events
+
+    def _preprocess_frame_for_lstm(self, frame: np.ndarray) -> np.ndarray:
+        """Preprocess a frame for LSTM model input.
+
+        Applies the same preprocessing pipeline used during model training:
+        1. Convert to float32
+        2. Convert BGR to RGB
+        3. Crop center square and resize to (LSTM_ROWS, LSTM_COLS)
+        4. Normalize to [0, 1]
+
+        Args:
+            frame: Input video frame in BGR format (height, width, 3).
+
+        Returns:
+            Preprocessed frame in RGB format with shape (LSTM_ROWS, LSTM_COLS, 3)
+            and values normalized to [0, 1].
+
+        Raises:
+            ValueError: If frame is invalid or has incorrect shape.
+        """
+        if frame is None or frame.size == 0:
+            raise ValueError("Invalid frame for LSTM preprocessing")
+
+        # Convert to float32 (like training)
+        frame_float = frame.astype(np.float32)
+
+        # Convert BGR to RGB
+        frame_rgb = cv2.cvtColor(frame_float, cv2.COLOR_BGR2RGB)
+
+        # Crop center square and resize
+        h, w = frame_rgb.shape[:2]
+        if h != w:
+            size = min(h, w)
+            start_h = (h - size) // 2
+            start_w = (w - size) // 2
+            frame_rgb = frame_rgb[start_h:start_h+size, start_w:start_w+size]
+
+        # Resize to model input dimensions
+        frame_resized = resize(
+            frame_rgb,
+            (self.LSTM_ROWS, self.LSTM_COLS),
+            anti_aliasing=True
+        )
+
+        # Normalize to [0, 1]
+        frame_normalized = frame_resized / 255.0 if frame_resized.max() > 1.0 else frame_resized
+
+        return frame_normalized
+
+    def _detect_continuous_gestures(self) -> list[GestureType]:
+        """Detect continuous gestures (ThumbsUp, ThumbsDown) using LSTM model.
+
+        Prepares a sequence of preprocessed frames and runs LSTM inference
+        to detect continuous hand gestures. Uses cooldown mechanism to avoid
+        rapid repeated detections.
+
+        Returns:
+            List of detected continuous gesture events. Empty if no gestures
+            detected or if gestures are in cooldown period.
+
+        Notes:
+            - Requires exactly LSTM_FRAMES frames in the buffer
+            - Only returns gestures with confidence > lstm_confidence_threshold
+            - Clears half the buffer after prediction for continuity
+            - Uses cooldown to prevent rapid repeated detections
+            - Only detects ThumbsUp and ThumbsDown (indices 3 and 4 from model)
+        """
+        if len(self._lstm_frame_buffer) != self.LSTM_FRAMES:
+            return []
+
+        # Prepare sequence for model input
+        sequence = np.zeros(
+            (1, self.LSTM_FRAMES, self.LSTM_ROWS, self.LSTM_COLS, self.LSTM_CHANNELS),
+            dtype=np.float32
+        )
+        for i, frame in enumerate(self._lstm_frame_buffer):
+            sequence[0, i] = frame
+
+        # Run inference
+        predictions = self.lstm_model.predict(sequence, verbose=0)
+        predicted_class = int(np.argmax(predictions[0]))
+        confidence = float(predictions[0][predicted_class])
+
+        # Log confidence for ThumbsUp and ThumbsDown on each inference
+        thumbs_down_conf = float(predictions[0][3])  # Index 3 = ThumbsDown
+        thumbs_up_conf = float(predictions[0][4])    # Index 4 = ThumbsUp
+        self.logger.info(
+            f"LSTM confidence - ThumbsDown: {thumbs_down_conf:.2%}, "
+            f"ThumbsUp: {thumbs_up_conf:.2%} "
+            f"(predicted: class {predicted_class} @ {confidence:.2%})"
+        )
+
+        # Update cooldown counters
+        for gesture_type in self._lstm_cooldown_counter:
+            if self._lstm_cooldown_counter[gesture_type] > 0:
+                self._lstm_cooldown_counter[gesture_type] -= 1
+
+        # Check if predicted gesture is one we care about
+        detected_events: list[GestureType] = []
+        if predicted_class in self.LSTM_GESTURE_LABELS:
+            gesture_type = self.LSTM_GESTURE_LABELS[predicted_class]
+
+            # Check confidence threshold and cooldown
+            if confidence >= self.lstm_confidence_threshold:
+                if self._lstm_cooldown_counter[gesture_type] == 0:
+                    detected_events.append(gesture_type)
+                    self._lstm_cooldown_counter[gesture_type] = self.LSTM_COOLDOWN_FRAMES
+                    self.logger.info(
+                        f"LSTM gesture detected: {gesture_type} "
+                        f"(confidence: {confidence:.2%})"
+                    )
+                else:
+                    self.logger.debug(
+                        f"LSTM gesture {gesture_type} in cooldown "
+                        f"({self._lstm_cooldown_counter[gesture_type]} frames)"
+                    )
+
+        # Clear half the buffer for continuity (like in example code)
+        for _ in range(self.LSTM_FRAMES // 2):
+            if self._lstm_frame_buffer:
+                self._lstm_frame_buffer.popleft()
 
         return detected_events
 
@@ -420,8 +694,8 @@ class HandGestureRecognizer:
     def reset(self) -> None:
         """Reset the gesture recognizer state.
 
-        Resets frame count, button state tracking, and last events.
-        Does not reinitialize MediaPipe Hand Landmarker instance.
+        Resets frame count, button state tracking, last events, and LSTM buffers.
+        Does not reinitialize MediaPipe Hand Landmarker or LSTM model instances.
         """
         self.logger.info("Resetting gesture recognizer state")
         self.frame_count = 0
@@ -429,6 +703,12 @@ class HandGestureRecognizer:
         self._primary_pressed = False
         self._secondary_pressed = False
         self._tertiary_pressed = False
+
+        # Reset LSTM state
+        self._lstm_frame_buffer.clear()
+        self._lstm_frame_counter = 0
+        for gesture_type in self._lstm_cooldown_counter:
+            self._lstm_cooldown_counter[gesture_type] = 0
 
     def cleanup(self) -> None:
         """Release MediaPipe Hand Landmarker resources.
@@ -453,8 +733,11 @@ class HandGestureRecognizer:
                 - status: Current status (active/idle)
                 - touch_threshold: Current touch detection threshold
                 - release_threshold: Current release detection threshold
+                - lstm_enabled: Whether LSTM continuous gesture recognition is enabled
+                - lstm_buffer_size: Current number of frames in LSTM buffer
+                - lstm_cooldowns: Cooldown status for continuous gestures
         """
-        return {
+        stats = {
             "frame_count": self.frame_count,
             "last_events": [str(evt) for evt in self.last_events],
             "primary_pressed": self._primary_pressed,
@@ -463,4 +746,15 @@ class HandGestureRecognizer:
             "status": "active" if self.frame_count > 0 else "idle",
             "touch_threshold": self.touch_threshold,
             "release_threshold": self.release_threshold,
+            "lstm_enabled": self.enable_continuous_gestures,
         }
+
+        # Add LSTM statistics if enabled
+        if self.enable_continuous_gestures:
+            stats["lstm_buffer_size"] = len(self._lstm_frame_buffer)
+            stats["lstm_cooldowns"] = {
+                str(gesture): cooldown
+                for gesture, cooldown in self._lstm_cooldown_counter.items()
+            }
+
+        return stats

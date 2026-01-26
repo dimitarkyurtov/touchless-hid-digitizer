@@ -21,10 +21,14 @@ class GestureType(Enum):
         TertiaryButtonReleased: Middle mouse button release (ring finger leaves thumb).
         SwipeLeft: Leftward swipe gesture for navigation (future use).
         SwipeRight: Rightward swipe gesture for navigation (future use).
+        ThumbsUp: Thumbs up gesture detected by LSTM model (continuous gesture).
+        ThumbsDown: Thumbs down gesture detected by LSTM model (continuous gesture).
 
     Notes:
         - An empty list represents no gesture events
         - Multiple events can occur in a single frame
+        - Continuous gestures (ThumbsUp, ThumbsDown) require temporal analysis
+          over multiple frames using the LSTM neural network model
     """
 
     PrimaryButtonClicked = auto()
@@ -35,6 +39,8 @@ class GestureType(Enum):
     TertiaryButtonReleased = auto()
     SwipeLeft = auto()
     SwipeRight = auto()
+    ThumbsUp = auto()
+    ThumbsDown = auto()
 
     def __str__(self) -> str:
         return self.name

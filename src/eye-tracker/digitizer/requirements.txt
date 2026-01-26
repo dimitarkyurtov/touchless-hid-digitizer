@@ -1,4 +1,7 @@
 pyserial>=3.5
-opencv-python>=4.8.0
+opencv-python==4.8.1.78
+opencv-contrib-python==4.8.1.78
 mediapipe>=0.10.0
-numpy>=1.24.0
+numpy==1.26.4
+scikit-image>=0.21.0
+tensorflow>=2.16.0
