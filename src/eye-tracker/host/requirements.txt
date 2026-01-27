@@ -7,5 +7,6 @@ Pillow
 matplotlib
 torchvision
 python-dateutil
+pynput
 opencv-contrib-python
 opencv-python

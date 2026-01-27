@@ -60,6 +60,14 @@ HID_REPORT_INTERVAL = 0.001  # seconds between reports (1ms)
 BUTTON_TIP_SWITCH = 0x01  # Bit 0: Left click / touch
 BUTTON_BARREL = 0x02      # Bit 1: Right click
 
+# Consumer Control HID device
+HID_CONSUMER_DEVICE = "/dev/hidg1"    # Consumer Control HID gadget device
+CONSUMER_REPORT_ID = 0x02
+CONSUMER_REPORT_SIZE = 2  # bytes (Report ID + button bitmap)
+CONSUMER_PLAY_PAUSE = 0x01  # Bit 0
+CONSUMER_NEXT_TRACK = 0x02  # Bit 1
+CONSUMER_PREV_TRACK = 0x04  # Bit 2
+
 # Coordinate limits (from USB HID Digitizer spec)
 MIN_COORDINATE = 0
 MAX_COORDINATE = 32767

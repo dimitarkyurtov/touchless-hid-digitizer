@@ -270,6 +270,34 @@ class SerialClient:
             self.logger.error(error_msg)
             return (False, error_msg)
 
+    def gesture_start(self) -> Tuple[bool, Optional[str]]:
+        """Send GESTURE_START command to start gesture recognition on digitizer.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.gesture_start()
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format GESTURE_START command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
+    def gesture_stop(self) -> Tuple[bool, Optional[str]]:
+        """Send GESTURE_STOP command to stop gesture recognition on digitizer.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.gesture_stop()
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format GESTURE_STOP command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
     def __enter__(self) -> "SerialClient":
         """Context manager entry.
 

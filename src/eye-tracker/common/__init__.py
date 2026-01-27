@@ -43,6 +43,7 @@ from .protocol import (
     InvalidCoordinateError,
     InvalidButtonError,
 )
+from .camera import Camera
 
 __all__ = [
     "__version__",
@@ -61,4 +62,5 @@ __all__ = [
     "InvalidCommandError",
     "InvalidCoordinateError",
     "InvalidButtonError",
+    "Camera",
 ]

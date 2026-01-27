@@ -40,6 +40,12 @@ from config import (
     BUTTON_BARREL,
     BUTTON_TIP_SWITCH,
     CLICK_DURATION,
+    CONSUMER_NEXT_TRACK,
+    CONSUMER_PLAY_PAUSE,
+    CONSUMER_PREV_TRACK,
+    CONSUMER_REPORT_ID,
+    CONSUMER_REPORT_SIZE,
+    HID_CONSUMER_DEVICE,
     HID_DEVICE,
     MAX_COORDINATE,
     MIN_COORDINATE,
@@ -60,6 +66,8 @@ class HIDController:
     Attributes:
         device_path (str): Path to the HID gadget device file.
         device (Optional[BinaryIO]): File handle to the HID device when open.
+        consumer_device_path (str): Path to the Consumer Control HID gadget device.
+        consumer_device (Optional[BinaryIO]): File handle to Consumer Control device when open.
         logger (logging.Logger): Logger instance for this controller.
         current_x (int): Last reported X coordinate (0-32767).
         current_y (int): Last reported Y coordinate (0-32767).
@@ -75,6 +83,8 @@ class HIDController:
         """
         self.device_path: str = device_path
         self.device: Optional[BinaryIO] = None
+        self.consumer_device_path: str = HID_CONSUMER_DEVICE
+        self.consumer_device: Optional[BinaryIO] = None
         self.logger: logging.Logger = logging.getLogger(__name__)
 
         # Current state (track last reported values)
@@ -99,6 +109,9 @@ class HIDController:
             self.logger.error(f"Failed to open HID device {self.device_path}: {e}")
             raise
 
+        # Also open consumer control device
+        self.open_consumer()
+
     def close(self) -> None:
         """Close HID device and release resources.
 
@@ -113,6 +126,9 @@ class HIDController:
                 self.logger.error(f"Error closing HID device: {e}")
             finally:
                 self.device = None
+
+        # Also close consumer control device
+        self.close_consumer()
 
     def is_open(self) -> bool:
         """Check if HID device is currently open.
@@ -317,6 +333,117 @@ class HIDController:
         """
         self.send_report(0, 0, 0, True)
         self.logger.info("Reset digitizer to (0, 0)")
+
+        # Also release all consumer control keys
+        if self.consumer_device is not None:
+            try:
+                report = bytes([CONSUMER_REPORT_ID, 0x00])
+                self.consumer_device.write(report)
+                self.consumer_device.flush()
+                self.logger.debug("Reset consumer control (released all media keys)")
+            except Exception as e:
+                self.logger.error(f"Failed to reset consumer control: {e}")
+
+    def open_consumer(self) -> None:
+        """Open Consumer Control HID device for writing.
+
+        Opens the Consumer Control HID gadget device in binary write mode
+        with no buffering to ensure immediate transmission of media key reports.
+
+        Raises:
+            IOError: If the device file cannot be opened (e.g., file doesn't
+                exist, insufficient permissions, or device already in use).
+        """
+        try:
+            self.consumer_device = open(self.consumer_device_path, 'wb', buffering=0)
+            self.logger.info(f"Opened Consumer Control device: {self.consumer_device_path}")
+        except IOError as e:
+            self.logger.error(f"Failed to open Consumer Control device {self.consumer_device_path}: {e}")
+            raise
+
+    def close_consumer(self) -> None:
+        """Close Consumer Control HID device and release resources.
+
+        Safe to call multiple times. Suppresses exceptions during close
+        but logs errors for debugging.
+        """
+        if self.consumer_device:
+            try:
+                self.consumer_device.close()
+                self.logger.info("Closed Consumer Control device")
+            except Exception as e:
+                self.logger.error(f"Error closing Consumer Control device: {e}")
+            finally:
+                self.consumer_device = None
+
+    def send_consumer_report(self, usage_bits: int) -> None:
+        """Send a Consumer Control HID report (press and release).
+
+        Sends a media key press report followed by a release report.
+        The release ensures the key doesn't remain held down.
+
+        Args:
+            usage_bits: Bitmask of consumer control usages to activate
+                (e.g., CONSUMER_PLAY_PAUSE, CONSUMER_NEXT_TRACK).
+
+        Raises:
+            IOError: If consumer device is not open or transmission fails.
+        """
+        if self.consumer_device is None:
+            raise IOError("Consumer Control device not open")
+
+        try:
+            # Send press report
+            press_report = bytes([CONSUMER_REPORT_ID, usage_bits])
+            self.consumer_device.write(press_report)
+            self.consumer_device.flush()
+            self.logger.debug(f"Sent consumer control press: 0x{usage_bits:02x}")
+
+            # Hold for configured click duration
+            time.sleep(CLICK_DURATION)
+
+            # Send release report (all zeros)
+            release_report = bytes([CONSUMER_REPORT_ID, 0x00])
+            self.consumer_device.write(release_report)
+            self.consumer_device.flush()
+            self.logger.debug("Sent consumer control release")
+
+        except BrokenPipeError as e:
+            # This happens when no host is connected via USB
+            self.logger.warning(
+                f"Consumer control report not sent - no USB host connected: {e}"
+            )
+
+        except (IOError, OSError) as e:
+            self.logger.error(f"Failed to send consumer control report: {e}")
+            raise
+
+    def play_pause(self) -> None:
+        """Send Play/Pause media key command.
+
+        Raises:
+            IOError: If consumer device is not open or transmission fails.
+        """
+        self.send_consumer_report(CONSUMER_PLAY_PAUSE)
+        self.logger.info("Sent Play/Pause media key")
+
+    def next_track(self) -> None:
+        """Send Next Track media key command.
+
+        Raises:
+            IOError: If consumer device is not open or transmission fails.
+        """
+        self.send_consumer_report(CONSUMER_NEXT_TRACK)
+        self.logger.info("Sent Next Track media key")
+
+    def prev_track(self) -> None:
+        """Send Previous Track media key command.
+
+        Raises:
+            IOError: If consumer device is not open or transmission fails.
+        """
+        self.send_consumer_report(CONSUMER_PREV_TRACK)
+        self.logger.info("Sent Previous Track media key")
 
     def __enter__(self) -> "HIDController":
         """Context manager entry - opens the HID device.

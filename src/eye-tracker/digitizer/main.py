@@ -38,11 +38,16 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+import cv2
+
 # Add parent directory to path to import common module
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.camera import Camera
 from common.protocol import (
     CMD_CLICK,
+    CMD_GESTURE_START,
+    CMD_GESTURE_STOP,
     CMD_MOVE,
     CMD_RELEASE,
     CommandFormatter,
@@ -52,12 +57,16 @@ from common.protocol import (
     ProtocolError,
 )
 from config import (
+    BUTTON_BARREL,
+    BUTTON_TIP_SWITCH,
     LOG_FILE,
     LOG_LEVEL,
     LOG_TO_CONSOLE,
     LOG_TO_FILE,
     SERVICE_NAME,
 )
+from gesture_types import GestureType
+from hand_gesture_recognizer import HandGestureRecognizer
 from hid_controller import HIDController
 from serial_listener import SerialListener
 
@@ -95,6 +104,10 @@ class HIDDigitizerService:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         self.running: bool = False
+
+        # Hand gesture recognition state
+        self._gesture_recognizer: Optional[HandGestureRecognizer] = None
+        self._gesture_camera: Optional[Camera] = None
 
     def setup_logging(self) -> None:
         """Configure logging based on config settings.
@@ -134,6 +147,126 @@ class HIDDigitizerService:
             level=getattr(logging, LOG_LEVEL),
             handlers=handlers,
         )
+
+    def _start_gesture_recognition(self) -> None:
+        """Start hand gesture recognition using the Pi camera."""
+        if self._gesture_camera is not None:
+            self.logger.warning("Gesture recognition already running")
+            return
+
+        try:
+            self._gesture_recognizer = HandGestureRecognizer()
+            self.logger.info("Hand gesture recognizer initialized")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize gesture recognizer: {e}")
+            raise
+
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            self.logger.error("Failed to open camera for gesture recognition")
+            self._gesture_recognizer = None
+            raise RuntimeError("Failed to open camera")
+
+        self._gesture_camera = Camera(cap, 30)
+        self._gesture_camera.register_callback(self._process_gesture_frame)
+        self._gesture_camera.start()
+        self.logger.info("Gesture recognition started")
+
+    def _stop_gesture_recognition(self) -> None:
+        """Stop hand gesture recognition and release resources."""
+        if self._gesture_camera is not None:
+            self._gesture_camera.stop()
+            self._gesture_camera = None
+            self.logger.info("Gesture camera stopped")
+
+        if self._gesture_recognizer is not None:
+            self._gesture_recognizer.cleanup()
+            self._gesture_recognizer = None
+            self.logger.info("Gesture recognizer cleaned up")
+
+        self.logger.info("Gesture recognition stopped")
+
+    def _process_gesture_frame(self, frame) -> None:
+        """Process a camera frame for gesture recognition.
+
+        Processes the frame to detect hand gestures and sends corresponding
+        HID reports for button events. Button state is managed by setting or
+        clearing bits in the current button mask, then sending a report at
+        the current cursor position.
+
+        Args:
+            frame: Captured video frame from the Pi camera.
+        """
+        if self._gesture_recognizer is None:
+            return
+
+        events = self._gesture_recognizer.process_frame(frame)
+        for event in events:
+            self.logger.info(f"Gesture event detected: {event}")
+
+            # Handle button click/release events
+            if event == GestureType.PrimaryButtonClicked:
+                # Set left button bit (BUTTON_TIP_SWITCH)
+                self.hid.current_buttons |= BUTTON_TIP_SWITCH
+                self.hid.send_report(
+                    self.hid.current_x,
+                    self.hid.current_y,
+                    self.hid.current_buttons,
+                    in_range=True
+                )
+                self.logger.info(f"Primary button pressed at ({self.hid.current_x}, {self.hid.current_y})")
+
+            elif event == GestureType.PrimaryButtonReleased:
+                # Clear left button bit
+                self.hid.current_buttons &= ~BUTTON_TIP_SWITCH
+                self.hid.send_report(
+                    self.hid.current_x,
+                    self.hid.current_y,
+                    self.hid.current_buttons,
+                    in_range=True
+                )
+                self.logger.info(f"Primary button released at ({self.hid.current_x}, {self.hid.current_y})")
+
+            elif event == GestureType.SecondaryButtonClicked:
+                # Set right button bit (BUTTON_BARREL)
+                self.hid.current_buttons |= BUTTON_BARREL
+                self.hid.send_report(
+                    self.hid.current_x,
+                    self.hid.current_y,
+                    self.hid.current_buttons,
+                    in_range=True
+                )
+                self.logger.info(f"Secondary button pressed at ({self.hid.current_x}, {self.hid.current_y})")
+
+            elif event == GestureType.SecondaryButtonReleased:
+                # Clear right button bit
+                self.hid.current_buttons &= ~BUTTON_BARREL
+                self.hid.send_report(
+                    self.hid.current_x,
+                    self.hid.current_y,
+                    self.hid.current_buttons,
+                    in_range=True
+                )
+                self.logger.info(f"Secondary button released at ({self.hid.current_x}, {self.hid.current_y})")
+
+            elif event == GestureType.TertiaryButtonClicked:
+                self.hid.play_pause()
+                self.logger.info("Tertiary button -> Play/Pause media key")
+
+            elif event == GestureType.ThumbsUp:
+                self.hid.next_track()
+                self.logger.info("ThumbsUp -> Next Track media key")
+
+            elif event == GestureType.ThumbsDown:
+                self.hid.prev_track()
+                self.logger.info("ThumbsDown -> Previous Track media key")
+
+            elif event == GestureType.TertiaryButtonReleased:
+                # Media keys use press-and-release, no hold needed
+                pass
+
+            else:
+                self.logger.info(f"Unhandled gesture event: {event}")
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
         """Handle shutdown signals (SIGINT, SIGTERM).
@@ -186,6 +319,23 @@ class HIDDigitizerService:
             elif cmd_type == CMD_RELEASE:
                 self.logger.info("Executing RELEASE")
                 self.hid.release()
+                self.serial.send_response(CommandFormatter.format_response(True))
+
+            elif cmd_type == CMD_GESTURE_START:
+                self.logger.info("Received GESTURE_START command")
+                try:
+                    self._start_gesture_recognition()
+                    self.serial.send_response(CommandFormatter.format_response(True))
+                except Exception as e:
+                    error_msg = f"Failed to start gesture recognition: {e}"
+                    self.logger.error(error_msg)
+                    self.serial.send_response(
+                        CommandFormatter.format_response(False, error_msg)
+                    )
+
+            elif cmd_type == CMD_GESTURE_STOP:
+                self.logger.info("Received GESTURE_STOP command")
+                self._stop_gesture_recognition()
                 self.serial.send_response(CommandFormatter.format_response(True))
 
             else:
@@ -275,6 +425,12 @@ class HIDDigitizerService:
 
         self.logger.info("Shutting down service...")
         self.running = False
+
+        # Stop gesture recognition if running
+        try:
+            self._stop_gesture_recognition()
+        except Exception as e:
+            self.logger.error(f"Error stopping gesture recognition: {e}")
 
         # Stop serial listener
         self.serial.stop()

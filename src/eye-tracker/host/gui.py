@@ -58,6 +58,7 @@ from config import (
     WINDOW_WIDTH,
 )
 from eye_tracker import EyeTracker
+from media_key_listener import MediaKeyListener
 from serial_client import SerialClient
 
 
@@ -106,6 +107,15 @@ class HIDDigitizerGUI:
         self._calibration_points: list[tuple[int, int]] = []
         self._calibration_index: int = 0
 
+        # Hand gesture recognition state
+        self._gesture_events: list[str] = []
+
+        # Media key listener
+        self._media_key_listener = MediaKeyListener(
+            callback=lambda key_name: self.root.after(0, self.add_gesture_event, f"Media Key: {key_name}")
+        )
+        self._media_key_listener.start()
+
         # Create main window
         self.root: tk.Tk = tk.Tk()
         self.root.title(WINDOW_TITLE)
@@ -139,6 +149,7 @@ class HIDDigitizerGUI:
         row = self.build_coordinates_section(main_frame, row)
         row = self.build_actions_section(main_frame, row)
         row = self.build_eye_tracker_section(main_frame, row)
+        row = self.build_hand_gesture_section(main_frame, row)
         row = self.build_info_section(main_frame, row)
 
         # Initialize port list
@@ -407,6 +418,63 @@ class HIDDigitizerGUI:
             command=self._simulate_gaze,
             width=BUTTON_WIDTH
         ).grid(row=3, column=0, columnspan=5, padx=5, pady=(10, 5))
+
+        return start_row + 1
+
+    def build_hand_gesture_section(self, parent: ttk.Frame, start_row: int) -> int:
+        """
+        Build hand gesture recognition section.
+
+        Args:
+            parent: Parent frame
+            start_row: Starting row number
+
+        Returns:
+            Next available row number
+        """
+        # Hand gesture frame
+        gesture_frame = ttk.LabelFrame(parent, text="Hand Gesture Recognition", padding=PADDING)
+        gesture_frame.grid(row=start_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, PADDING))
+
+        # Configure grid
+        for i in range(2):
+            gesture_frame.columnconfigure(i, weight=1)
+
+        # Row 0: Control buttons
+        ttk.Button(
+            gesture_frame,
+            text="Start",
+            command=self.start_hand_gesture,
+            width=BUTTON_WIDTH
+        ).grid(row=0, column=0, padx=5, pady=5)
+
+        ttk.Button(
+            gesture_frame,
+            text="Stop",
+            command=self.stop_hand_gesture,
+            width=BUTTON_WIDTH
+        ).grid(row=0, column=1, padx=5, pady=5)
+
+        # Row 1: Label for gesture events
+        ttk.Label(gesture_frame, text="Recent Gesture Events:").grid(
+            row=1, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
+        )
+
+        # Row 2: Text area for displaying gesture events
+        self._gesture_text = tk.Text(
+            gesture_frame,
+            height=5,
+            width=50,
+            state='disabled',
+            wrap=tk.WORD,
+            font=('TkDefaultFont', 9)
+        )
+        self._gesture_text.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+
+        # Add scrollbar to text widget
+        scrollbar = ttk.Scrollbar(gesture_frame, orient=tk.VERTICAL, command=self._gesture_text.yview)
+        scrollbar.grid(row=2, column=2, sticky=(tk.N, tk.S), pady=(0, 5))
+        self._gesture_text.config(yscrollcommand=scrollbar.set)
 
         return start_row + 1
 
@@ -767,6 +835,60 @@ class HIDDigitizerGUI:
         self.camera.stop()
         self.logger.info("Eye tracking stopped")
 
+    def start_hand_gesture(self) -> None:
+        """Send GESTURE_START command to the digitizer to begin hand gesture recognition."""
+        if not self.check_connected():
+            return
+
+        success, error_msg = self.serial_client.gesture_start()
+        self.handle_command_result(success, error_msg)
+        if success:
+            self.logger.info("Gesture recognition started on digitizer")
+            self.add_gesture_event("Gesture recognition started")
+        else:
+            self.add_gesture_event(f"Failed to start: {error_msg}")
+
+    def stop_hand_gesture(self) -> None:
+        """Send GESTURE_STOP command to the digitizer to stop hand gesture recognition."""
+        if not self.check_connected():
+            return
+
+        success, error_msg = self.serial_client.gesture_stop()
+        self.handle_command_result(success, error_msg)
+        if success:
+            self.logger.info("Gesture recognition stopped on digitizer")
+            self.add_gesture_event("Gesture recognition stopped")
+        else:
+            self.add_gesture_event(f"Failed to stop: {error_msg}")
+
+    def add_gesture_event(self, event_text: str) -> None:
+        """Add a gesture event to the display list.
+
+        Maintains a list of the last 5 gesture events and updates the
+        text display widget with the current events.
+
+        Args:
+            event_text: Description of the gesture event to add
+        """
+        # Add event with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_event = f"[{timestamp}] {event_text}"
+
+        # Add to list and keep only last 5
+        self._gesture_events.append(formatted_event)
+        if len(self._gesture_events) > 5:
+            self._gesture_events.pop(0)
+
+        # Update text widget
+        self._gesture_text.config(state='normal')
+        self._gesture_text.delete(1.0, tk.END)
+        self._gesture_text.insert(1.0, "\n".join(self._gesture_events))
+        self._gesture_text.config(state='disabled')
+
+        # Scroll to bottom
+        self._gesture_text.see(tk.END)
+
     def start_calibration(self) -> None:
         """Start eye tracker calibration process.
 
@@ -1018,6 +1140,8 @@ class HIDDigitizerGUI:
             self._calibration_cap.release()
         if self._calibration_window is not None:
             self._calibration_window.destroy()
+
+        self._media_key_listener.stop()
 
         if self.serial_client.is_connected():
             self.serial_client.disconnect()

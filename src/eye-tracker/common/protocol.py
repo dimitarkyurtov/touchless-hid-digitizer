@@ -48,6 +48,8 @@ VALID_BUTTONS = {BUTTON_LEFT, BUTTON_RIGHT}
 CMD_MOVE = "MOVE"
 CMD_CLICK = "CLICK"
 CMD_RELEASE = "RELEASE"
+CMD_GESTURE_START = "GESTURE_START"
+CMD_GESTURE_STOP = "GESTURE_STOP"
 
 # Response constants
 RESPONSE_OK = "OK"
@@ -134,6 +136,8 @@ class CommandParser:
     MOVE_PATTERN = re.compile(r'^MOVE\s+(\d+)\s+(\d+)$', re.IGNORECASE)
     CLICK_PATTERN = re.compile(r'^CLICK\s+(left|right)$', re.IGNORECASE)
     RELEASE_PATTERN = re.compile(r'^RELEASE$', re.IGNORECASE)
+    GESTURE_START_PATTERN = re.compile(r'^GESTURE_START$', re.IGNORECASE)
+    GESTURE_STOP_PATTERN = re.compile(r'^GESTURE_STOP$', re.IGNORECASE)
 
     @staticmethod
     def parse(command_str: str) -> Tuple[str, Dict[str, Any]]:
@@ -203,6 +207,14 @@ class CommandParser:
         # Try to parse RELEASE command
         if CommandParser.RELEASE_PATTERN.match(command_str):
             return (CMD_RELEASE, {})
+
+        # Try to parse GESTURE_START command
+        if CommandParser.GESTURE_START_PATTERN.match(command_str):
+            return (CMD_GESTURE_START, {})
+
+        # Try to parse GESTURE_STOP command
+        if CommandParser.GESTURE_STOP_PATTERN.match(command_str):
+            return (CMD_GESTURE_STOP, {})
 
         # No pattern matched
         raise InvalidCommandError(f"Unknown command: {command_str}")
@@ -327,6 +339,34 @@ class CommandFormatter:
             'RELEASE'
         """
         return CMD_RELEASE
+
+    @staticmethod
+    def gesture_start() -> str:
+        """Format a GESTURE_START command to start gesture recognition.
+
+        Returns:
+            Formatted command string without newline terminator.
+            Always returns: "GESTURE_START"
+
+        Example:
+            >>> CommandFormatter.gesture_start()
+            'GESTURE_START'
+        """
+        return CMD_GESTURE_START
+
+    @staticmethod
+    def gesture_stop() -> str:
+        """Format a GESTURE_STOP command to stop gesture recognition.
+
+        Returns:
+            Formatted command string without newline terminator.
+            Always returns: "GESTURE_STOP"
+
+        Example:
+            >>> CommandFormatter.gesture_stop()
+            'GESTURE_STOP'
+        """
+        return CMD_GESTURE_STOP
 
     @staticmethod
     def format_response(success: bool, message: str = "") -> str:

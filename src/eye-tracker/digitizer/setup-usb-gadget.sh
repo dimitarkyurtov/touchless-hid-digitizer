@@ -77,6 +77,28 @@ c0                       //   End Collection
 c0                       // End Collection
 "
 
+# Consumer Control HID Report Descriptor
+# Implements media key controls: Play/Pause, Next Track, Previous Track
+# Report format (2 bytes): [Report ID=0x02] [bit0: Play/Pause, bit1: Next, bit2: Prev, bits3-7: padding]
+HID_CONSUMER_REPORT_DESC="
+05 0C                    // Usage Page (Consumer)
+09 01                    // Usage (Consumer Control)
+a1 01                    // Collection (Application)
+85 02                    //   Report ID (2)
+15 00                    //   Logical Minimum (0)
+25 01                    //   Logical Maximum (1)
+75 01                    //   Report Size (1)
+95 03                    //   Report Count (3)
+09 CD                    //   Usage (Play/Pause)
+09 B5                    //   Usage (Scan Next Track)
+09 B6                    //   Usage (Scan Previous Track)
+81 02                    //   Input (Data, Variable, Absolute)
+75 05                    //   Report Size (5)
+95 01                    //   Report Count (1)
+81 03                    //   Input (Constant) - padding
+c0                       // End Collection
+"
+
 # Function to log messages
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
@@ -116,11 +138,15 @@ remove_gadget() {
 
     # Remove configuration symlinks
     rm -f "${GADGET_DIR}/configs/${CONFIG_NAME}/hid.usb0" 2>/dev/null || true
+    rm -f "${GADGET_DIR}/configs/${CONFIG_NAME}/hid.usb1" 2>/dev/null || true
     rm -f "${GADGET_DIR}/configs/${CONFIG_NAME}/acm.usb0" 2>/dev/null || true
 
     # Remove functions
     if [ -d "${GADGET_DIR}/functions/hid.usb0" ]; then
         rmdir "${GADGET_DIR}/functions/hid.usb0" 2>/dev/null || true
+    fi
+    if [ -d "${GADGET_DIR}/functions/hid.usb1" ]; then
+        rmdir "${GADGET_DIR}/functions/hid.usb1" 2>/dev/null || true
     fi
     if [ -d "${GADGET_DIR}/functions/acm.usb0" ]; then
         rmdir "${GADGET_DIR}/functions/acm.usb0" 2>/dev/null || true
@@ -199,6 +225,17 @@ setup_gadget() {
     log "Writing HID report descriptor..."
     hex_to_binary "$HID_REPORT_DESC" > functions/hid.usb0/report_desc
 
+    # Create Consumer Control HID function
+    log "Creating Consumer Control HID function..."
+    mkdir -p functions/hid.usb1
+    echo "0" > functions/hid.usb1/protocol
+    echo "0" > functions/hid.usb1/subclass
+    echo "2" > functions/hid.usb1/report_length
+
+    # Write Consumer Control HID report descriptor
+    log "Writing Consumer Control HID report descriptor..."
+    hex_to_binary "$HID_CONSUMER_REPORT_DESC" > functions/hid.usb1/report_desc
+
     # Create CDC ACM (Serial) function
     log "Creating CDC ACM serial function..."
     mkdir -p functions/acm.usb0
@@ -206,6 +243,7 @@ setup_gadget() {
     # Link functions to configuration
     log "Linking functions to configuration..."
     ln -s functions/hid.usb0 "configs/${CONFIG_NAME}/"
+    ln -s functions/hid.usb1 "configs/${CONFIG_NAME}/"
     ln -s functions/acm.usb0 "configs/${CONFIG_NAME}/"
 
     # Enable gadget
@@ -214,6 +252,7 @@ setup_gadget() {
 
     log "USB gadget configured successfully!"
     log "HID device: /dev/hidg0"
+    log "Consumer Control HID device: /dev/hidg1"
     log "Serial device: /dev/ttyGS0"
 }
 
