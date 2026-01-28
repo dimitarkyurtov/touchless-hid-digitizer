@@ -2,6 +2,69 @@
 
 This directory contains the device-side implementation of the HID digitizer system. It runs on hardware with USB OTG (On-The-Go) support, such as a Raspberry Pi, and presents itself to the host computer as a standard USB HID digitizer device.
 
+## Project Structure
+
+```
+src/eye-tracker/
+├── common/                    # Shared code between host and digitizer
+│   ├── __init__.py
+│   ├── camera.py              # Camera wrapper class
+│   ├── gesture_types.py       # GestureType enum (shared)
+│   └── protocol.py            # Serial communication protocol
+├── digitizer/                 # Raspberry Pi device code (this directory)
+│   ├── config.py              # Device configuration
+│   ├── hid_controller.py      # USB HID report generation
+│   ├── main.py                # Main service entry point
+│   ├── serial_listener.py     # Serial command listener
+│   ├── setup-usb-gadget.sh    # USB gadget configuration script
+│   ├── hid-digitizer.service  # Systemd service for main app
+│   └── usb-gadget.service     # Systemd service for USB gadget
+└── host/                      # Mac/PC host application
+    ├── gui.py                 # Tkinter GUI
+    ├── serial_client.py       # Serial communication client
+    ├── eye_tracker.py         # Eye tracking module
+    ├── hand_gesture_recognizer.py  # Hand gesture recognition
+    └── ...
+```
+
+## Architecture
+
+The digitizer acts as a command executor, receiving commands from the host via USB serial and translating them into HID reports:
+
+```
+Host (Mac/PC)                          Digitizer (Raspberry Pi)
+┌─────────────────────┐                ┌─────────────────────────┐
+│ Eye Tracking        │                │                         │
+│ + Gesture Recognition│──── USB ─────▶│  Serial Listener        │
+│ (runs locally)      │    Serial      │         │               │
+│                     │                │         ▼               │
+│ Serial Commands:    │                │  Command Parser         │
+│ - MOVE x y          │                │         │               │
+│ - BUTTON_PRESS left │                │         ▼               │
+│ - MEDIA_PLAY_PAUSE  │                │  HID Controller         │
+│ - etc.              │                │         │               │
+└─────────────────────┘                │         ▼               │
+                                       │  /dev/hidg0 ──▶ OS      │
+                                       └─────────────────────────┘
+```
+
+**Note**: Hand gesture recognition runs on the host machine (Mac/PC) for better performance. The host sends explicit button press/release and media control commands to the digitizer.
+
+## Supported Commands
+
+The digitizer accepts the following commands over serial:
+
+| Command | Description |
+|---------|-------------|
+| `MOVE x y` | Move cursor to absolute coordinates (0-32767) |
+| `CLICK left\|right` | Click and release a button |
+| `RELEASE` | Release all buttons |
+| `BUTTON_PRESS left\|right` | Press and hold a button |
+| `BUTTON_RELEASE left\|right` | Release a held button |
+| `MEDIA_PLAY_PAUSE` | Toggle media play/pause |
+| `MEDIA_NEXT` | Skip to next track |
+| `MEDIA_PREV` | Skip to previous track |
+
 ## Prerequisites
 
 ### Hardware Requirements
@@ -37,11 +100,18 @@ git clone https://github.com/yourusername/touchless-hid-digitizer.git
 cd touchless-hid-digitizer
 ```
 
-Or copy the `digitizer/` and `common/` directories manually via SCP/SFTP.
+Or copy the `src/eye-tracker/digitizer/` and `src/eye-tracker/common/` directories manually via SCP/SFTP.
 
 ### Step 2: Install Python Dependencies
 
 **IMPORTANT**: Use a virtual environment to avoid conflicts with system packages.
+
+```bash
+cd ~/touchless-hid-digitizer/src/eye-tracker/digitizer
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### Step 3: Enable USB Gadget Mode
 
@@ -88,8 +158,12 @@ Copy the application to `/opt/hid-digitizer/`:
 
 ```bash
 sudo mkdir -p /opt/hid-digitizer
-sudo cp -r ~/touchless-hid-digitizer/digitizer/* /opt/hid-digitizer/
-sudo cp -r ~/touchless-hid-digitizer/common /opt/hid-digitizer/
+
+# Copy digitizer code
+sudo cp -r ~/touchless-hid-digitizer/src/eye-tracker/digitizer/* /opt/hid-digitizer/
+
+# Copy common code (required for protocol)
+sudo cp -r ~/touchless-hid-digitizer/src/eye-tracker/common /opt/hid-digitizer/
 ```
 
 Make the main script executable:
@@ -236,6 +310,9 @@ screen /dev/cu.usbmodem14201 115200
 # Then type commands:
 MOVE 16384 16384
 CLICK left
+BUTTON_PRESS left
+BUTTON_RELEASE left
+MEDIA_PLAY_PAUSE
 RELEASE
 ```
 
@@ -457,7 +534,7 @@ sudo reboot
 
 ## See Also
 
-- [Main README](../README.md) - Project overview
+- [Main Project README](../../../README.md) - Project overview
 - [Protocol Documentation](../common/README.md) - Communication protocol
 - [Host Application](../host/README.md) - Host setup and usage
 - [Linux USB Gadget Documentation](https://www.kernel.org/doc/html/latest/usb/gadget.html)

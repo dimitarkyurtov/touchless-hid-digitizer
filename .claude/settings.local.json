@@ -14,7 +14,9 @@
       "Bash(grep:*)",
       "Bash(python:*)",
       "Bash(chmod:*)",
-      "mcp__context7__resolve-library-id"
+      "mcp__context7__resolve-library-id",
+      "Bash(/Users/dkyurtov/workspace/eductation/hpc/computer-vision/touchless-hid-digitizer/src/eye-tracker/digitizer/venv/bin/pip show:*)",
+      "Bash(/Users/dkyurtov/workspace/eductation/hpc/computer-vision/touchless-hid-digitizer/src/eye-tracker/digitizer/venv/bin/python:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

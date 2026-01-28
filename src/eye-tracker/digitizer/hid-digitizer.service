@@ -8,8 +8,8 @@ Wants=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/hid-digitizer
-ExecStart=/usr/bin/python3 /opt/hid-digitizer/main.py
+WorkingDirectory=/opt/touchless-hid-digitizer/eye-tracker/digitizer
+ExecStart=/usr/bin/python3 /opt/touchless-hid-digitizer/eye-tracker/digitizer/main.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

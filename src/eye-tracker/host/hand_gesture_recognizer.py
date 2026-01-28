@@ -27,7 +27,7 @@ from mediapipe.tasks.python import vision
 import numpy as np
 from skimage.transform import resize
 
-from gesture_types import GestureType
+from common.gesture_types import GestureType
 
 # Force TensorFlow to use CPU only (for Raspberry Pi compatibility)
 import os

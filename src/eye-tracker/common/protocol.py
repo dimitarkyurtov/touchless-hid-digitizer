@@ -8,6 +8,13 @@ The protocol uses ASCII-based commands sent over USB CDC ACM serial:
     - MOVE <x> <y>: Move cursor to absolute coordinates
     - CLICK <button>: Click a button (left or right)
     - RELEASE: Release all buttons
+    - GESTURE_START: Start gesture recognition
+    - GESTURE_STOP: Stop gesture recognition
+    - MEDIA_PLAY_PAUSE: Toggle media playback
+    - MEDIA_NEXT: Skip to next media track
+    - MEDIA_PREV: Skip to previous media track
+    - BUTTON_PRESS <button>: Press a button without release (left or right)
+    - BUTTON_RELEASE <button>: Release a pressed button (left or right)
 
 Responses from the digitizer:
     - OK: Command executed successfully
@@ -50,6 +57,11 @@ CMD_CLICK = "CLICK"
 CMD_RELEASE = "RELEASE"
 CMD_GESTURE_START = "GESTURE_START"
 CMD_GESTURE_STOP = "GESTURE_STOP"
+CMD_MEDIA_PLAY_PAUSE = "MEDIA_PLAY_PAUSE"
+CMD_MEDIA_NEXT = "MEDIA_NEXT"
+CMD_MEDIA_PREV = "MEDIA_PREV"
+CMD_BUTTON_PRESS = "BUTTON_PRESS"
+CMD_BUTTON_RELEASE = "BUTTON_RELEASE"
 
 # Response constants
 RESPONSE_OK = "OK"
@@ -138,6 +150,11 @@ class CommandParser:
     RELEASE_PATTERN = re.compile(r'^RELEASE$', re.IGNORECASE)
     GESTURE_START_PATTERN = re.compile(r'^GESTURE_START$', re.IGNORECASE)
     GESTURE_STOP_PATTERN = re.compile(r'^GESTURE_STOP$', re.IGNORECASE)
+    MEDIA_PLAY_PAUSE_PATTERN = re.compile(r'^MEDIA_PLAY_PAUSE$', re.IGNORECASE)
+    MEDIA_NEXT_PATTERN = re.compile(r'^MEDIA_NEXT$', re.IGNORECASE)
+    MEDIA_PREV_PATTERN = re.compile(r'^MEDIA_PREV$', re.IGNORECASE)
+    BUTTON_PRESS_PATTERN = re.compile(r'^BUTTON_PRESS\s+(left|right)$', re.IGNORECASE)
+    BUTTON_RELEASE_PATTERN = re.compile(r'^BUTTON_RELEASE\s+(left|right)$', re.IGNORECASE)
 
     @staticmethod
     def parse(command_str: str) -> Tuple[str, Dict[str, Any]]:
@@ -215,6 +232,40 @@ class CommandParser:
         # Try to parse GESTURE_STOP command
         if CommandParser.GESTURE_STOP_PATTERN.match(command_str):
             return (CMD_GESTURE_STOP, {})
+
+        # Try to parse MEDIA_PLAY_PAUSE command
+        if CommandParser.MEDIA_PLAY_PAUSE_PATTERN.match(command_str):
+            return (CMD_MEDIA_PLAY_PAUSE, {})
+
+        # Try to parse MEDIA_NEXT command
+        if CommandParser.MEDIA_NEXT_PATTERN.match(command_str):
+            return (CMD_MEDIA_NEXT, {})
+
+        # Try to parse MEDIA_PREV command
+        if CommandParser.MEDIA_PREV_PATTERN.match(command_str):
+            return (CMD_MEDIA_PREV, {})
+
+        # Try to parse BUTTON_PRESS command
+        match = CommandParser.BUTTON_PRESS_PATTERN.match(command_str)
+        if match:
+            button = match.group(1).lower()
+
+            # Validate button
+            if button not in VALID_BUTTONS:
+                raise InvalidButtonError(f"Invalid button: {button}")
+
+            return (CMD_BUTTON_PRESS, {"button": button})
+
+        # Try to parse BUTTON_RELEASE command
+        match = CommandParser.BUTTON_RELEASE_PATTERN.match(command_str)
+        if match:
+            button = match.group(1).lower()
+
+            # Validate button
+            if button not in VALID_BUTTONS:
+                raise InvalidButtonError(f"Invalid button: {button}")
+
+            return (CMD_BUTTON_RELEASE, {"button": button})
 
         # No pattern matched
         raise InvalidCommandError(f"Unknown command: {command_str}")
@@ -367,6 +418,90 @@ class CommandFormatter:
             'GESTURE_STOP'
         """
         return CMD_GESTURE_STOP
+
+    @staticmethod
+    def media_play_pause() -> str:
+        """Format a MEDIA_PLAY_PAUSE command to toggle media playback.
+
+        Returns:
+            Formatted command string without newline terminator.
+            Always returns: "MEDIA_PLAY_PAUSE"
+
+        Example:
+            >>> CommandFormatter.media_play_pause()
+            'MEDIA_PLAY_PAUSE'
+        """
+        return CMD_MEDIA_PLAY_PAUSE
+
+    @staticmethod
+    def media_next() -> str:
+        """Format a MEDIA_NEXT command to skip to next media track.
+
+        Returns:
+            Formatted command string without newline terminator.
+            Always returns: "MEDIA_NEXT"
+
+        Example:
+            >>> CommandFormatter.media_next()
+            'MEDIA_NEXT'
+        """
+        return CMD_MEDIA_NEXT
+
+    @staticmethod
+    def media_prev() -> str:
+        """Format a MEDIA_PREV command to skip to previous media track.
+
+        Returns:
+            Formatted command string without newline terminator.
+            Always returns: "MEDIA_PREV"
+
+        Example:
+            >>> CommandFormatter.media_prev()
+            'MEDIA_PREV'
+        """
+        return CMD_MEDIA_PREV
+
+    @staticmethod
+    def button_press(button: str) -> str:
+        """Format a BUTTON_PRESS command to press a button without release.
+
+        Args:
+            button: Button type - either "left" or "right" (case-insensitive).
+
+        Returns:
+            Formatted command string without newline terminator.
+            Format: "BUTTON_PRESS <button>" where button is lowercased.
+
+        Raises:
+            InvalidButtonError: If button is not "left" or "right".
+
+        Example:
+            >>> CommandFormatter.button_press("left")
+            'BUTTON_PRESS left'
+        """
+        CommandParser.validate_button(button)
+        return f"{CMD_BUTTON_PRESS} {button.lower()}"
+
+    @staticmethod
+    def button_release(button: str) -> str:
+        """Format a BUTTON_RELEASE command to release a pressed button.
+
+        Args:
+            button: Button type - either "left" or "right" (case-insensitive).
+
+        Returns:
+            Formatted command string without newline terminator.
+            Format: "BUTTON_RELEASE <button>" where button is lowercased.
+
+        Raises:
+            InvalidButtonError: If button is not "left" or "right".
+
+        Example:
+            >>> CommandFormatter.button_release("right")
+            'BUTTON_RELEASE right'
+        """
+        CommandParser.validate_button(button)
+        return f"{CMD_BUTTON_RELEASE} {button.lower()}"
 
     @staticmethod
     def format_response(success: bool, message: str = "") -> str:

@@ -2,12 +2,16 @@
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import NoReturn, Optional
 
 import cv2
 import numpy as np
 
-from gesture_types import GestureType
+# Add parent directory to path to import common module
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from common.gesture_types import GestureType
 from hand_gesture_recognizer import HandGestureRecognizer
 
 CAMERA_INDEX: int = 0

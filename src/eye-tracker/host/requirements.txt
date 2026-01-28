@@ -10,3 +10,6 @@ python-dateutil
 pynput
 opencv-contrib-python
 opencv-python
+scikit-image>=0.21.0
+tensorflow>=2.16.0
+mediapipe>=0.10.0

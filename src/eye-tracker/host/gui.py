@@ -39,10 +39,12 @@ import cv2
 import numpy as np
 import torch
 from camera import Camera
+from hand_gesture_recognizer import HandGestureRecognizer
 
 # Add parent directory to path to import common module
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.gesture_types import GestureType
 from common.protocol import MAX_COORDINATE, MIN_COORDINATE
 from config import (
     BUTTON_WIDTH,
@@ -109,6 +111,8 @@ class HIDDigitizerGUI:
 
         # Hand gesture recognition state
         self._gesture_events: list[str] = []
+        self._gesture_camera: Optional[Camera] = None
+        self._gesture_recognizer: Optional[HandGestureRecognizer] = None
 
         # Media key listener
         self._media_key_listener = MediaKeyListener(
@@ -836,30 +840,90 @@ class HIDDigitizerGUI:
         self.logger.info("Eye tracking stopped")
 
     def start_hand_gesture(self) -> None:
-        """Send GESTURE_START command to the digitizer to begin hand gesture recognition."""
-        if not self.check_connected():
+        """Start local hand gesture recognition using camera index 1."""
+        # Open camera index 1 (second camera)
+        cap = cv2.VideoCapture(0)
+
+        if not cap.isOpened():
+            self.logger.error("Failed to open camera index 1 for gesture recognition")
+            messagebox.showerror("Error", "Failed to open camera index 1 for gesture recognition")
             return
 
-        success, error_msg = self.serial_client.gesture_start()
-        self.handle_command_result(success, error_msg)
-        if success:
-            self.logger.info("Gesture recognition started on digitizer")
-            self.add_gesture_event("Gesture recognition started")
-        else:
-            self.add_gesture_event(f"Failed to start: {error_msg}")
+        # Initialize HandGestureRecognizer
+        try:
+            self._gesture_recognizer = HandGestureRecognizer()
+            self.logger.info("Hand gesture recognizer initialized")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize gesture recognizer: {e}")
+            messagebox.showerror(
+                "Error",
+                f"Failed to initialize gesture recognizer: {e}"
+            )
+            cap.release()
+            return
+
+        # Create Camera instance
+        self._gesture_camera = Camera(cap, 30)
+        self._gesture_camera.register_callback(self._process_gesture_frame)
+        self._gesture_camera.start()
+
+        self.logger.info("Gesture recognition started (local)")
+        self.add_gesture_event("Gesture recognition started (local)")
+
+    def _process_gesture_frame(self, frame: np.ndarray) -> None:
+        """Process a single frame from the gesture camera.
+
+        Args:
+            frame: Captured video frame
+        """
+        if self._gesture_recognizer is None:
+            return
+
+        # Process frame and get gesture events
+        events = self._gesture_recognizer.process_frame(frame)
+
+        # Map gesture events to serial commands
+        for event in events:
+            # Map to serial commands (only if connected)
+            if event == GestureType.PrimaryButtonClicked:
+                if self.serial_client.is_connected():
+                    self.serial_client.button_press("left")
+            elif event == GestureType.PrimaryButtonReleased:
+                if self.serial_client.is_connected():
+                    self.serial_client.button_release("left")
+            elif event == GestureType.SecondaryButtonClicked:
+                if self.serial_client.is_connected():
+                    self.serial_client.button_press("right")
+            elif event == GestureType.SecondaryButtonReleased:
+                if self.serial_client.is_connected():
+                    self.serial_client.button_release("right")
+            elif event == GestureType.TertiaryButtonClicked:
+                if self.serial_client.is_connected():
+                    self.serial_client.media_play_pause()
+            elif event == GestureType.ThumbsUp:
+                if self.serial_client.is_connected():
+                    self.serial_client.media_next()
+            elif event == GestureType.ThumbsDown:
+                if self.serial_client.is_connected():
+                    self.serial_client.media_prev()
+
+            # Add event to display (use root.after for thread safety)
+            self.root.after(0, self.add_gesture_event, f"Gesture: {event}")
 
     def stop_hand_gesture(self) -> None:
-        """Send GESTURE_STOP command to the digitizer to stop hand gesture recognition."""
-        if not self.check_connected():
-            return
+        """Stop local hand gesture recognition."""
+        # Stop the gesture camera if running
+        if self._gesture_camera is not None:
+            self._gesture_camera.stop()
+            self._gesture_camera = None
 
-        success, error_msg = self.serial_client.gesture_stop()
-        self.handle_command_result(success, error_msg)
-        if success:
-            self.logger.info("Gesture recognition stopped on digitizer")
-            self.add_gesture_event("Gesture recognition stopped")
-        else:
-            self.add_gesture_event(f"Failed to stop: {error_msg}")
+        # Cleanup the gesture recognizer if present
+        if self._gesture_recognizer is not None:
+            self._gesture_recognizer.cleanup()
+            self._gesture_recognizer = None
+
+        self.logger.info("Gesture recognition stopped")
+        self.add_gesture_event("Gesture recognition stopped")
 
     def add_gesture_event(self, event_text: str) -> None:
         """Add a gesture event to the display list.
@@ -909,7 +973,7 @@ class HIDDigitizerGUI:
                 return
 
         # Open webcam
-        self._calibration_cap = cv2.VideoCapture(0)
+        self._calibration_cap = cv2.VideoCapture(1)
         if not self._calibration_cap.isOpened():
             self.logger.error("Failed to open webcam")
             messagebox.showerror("Error", "Failed to open webcam")
@@ -1140,6 +1204,12 @@ class HIDDigitizerGUI:
             self._calibration_cap.release()
         if self._calibration_window is not None:
             self._calibration_window.destroy()
+
+        # Clean up gesture resources
+        if self._gesture_camera is not None:
+            self._gesture_camera.stop()
+        if self._gesture_recognizer is not None:
+            self._gesture_recognizer.cleanup()
 
         self._media_key_listener.stop()
 

@@ -298,6 +298,82 @@ class SerialClient:
             self.logger.error(error_msg)
             return (False, error_msg)
 
+    def media_play_pause(self) -> Tuple[bool, Optional[str]]:
+        """Send MEDIA_PLAY_PAUSE command to toggle media playback.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.media_play_pause()
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format MEDIA_PLAY_PAUSE command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
+    def media_next(self) -> Tuple[bool, Optional[str]]:
+        """Send MEDIA_NEXT command to skip to next media track.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.media_next()
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format MEDIA_NEXT command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
+    def media_prev(self) -> Tuple[bool, Optional[str]]:
+        """Send MEDIA_PREV command to skip to previous media track.
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.media_prev()
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format MEDIA_PREV command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
+    def button_press(self, button: str) -> Tuple[bool, Optional[str]]:
+        """Send BUTTON_PRESS command to press a button down.
+
+        Args:
+            button: Button type - "left" or "right".
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.button_press(button)
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format BUTTON_PRESS command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
+    def button_release(self, button: str) -> Tuple[bool, Optional[str]]:
+        """Send BUTTON_RELEASE command to release a button.
+
+        Args:
+            button: Button type - "left" or "right".
+
+        Returns:
+            Tuple of (success, error_message).
+        """
+        try:
+            command = CommandFormatter.button_release(button)
+            return self.send_command(command)
+        except Exception as e:
+            error_msg = f"Failed to format BUTTON_RELEASE command: {e}"
+            self.logger.error(error_msg)
+            return (False, error_msg)
+
     def __enter__(self) -> "SerialClient":
         """Context manager entry.
 
