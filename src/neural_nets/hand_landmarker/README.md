@@ -1,0 +1,1 @@
+The model in this directory is a local copy of the official Google model in order not to be downloaded on every host application launch.

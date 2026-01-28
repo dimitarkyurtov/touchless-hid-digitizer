@@ -1,0 +1,1 @@
+The model in this directory was trained by following the example in this repository - https://github.com/sancharee/HandGestureRecognition-using-3D-Conv-and-CNN-RNN-Stack with some modification to the architecture.
