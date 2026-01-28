@@ -50,6 +50,8 @@ from config import (
     BUTTON_WIDTH,
     DEFAULT_X,
     DEFAULT_Y,
+    EYE_TRACKING_CAMERA_INDEX,
+    GESTURE_CAMERA_INDEX,
     PADDING,
     STATUS_COLOR_CONNECTED,
     STATUS_COLOR_DISCONNECTED,
@@ -730,11 +732,11 @@ class HIDDigitizerGUI:
                 )
                 return
 
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(EYE_TRACKING_CAMERA_INDEX)
 
         if not cap.isOpened():
-            self.logger.error("Failed to open webcam")
-            messagebox.showerror("Error", "Failed to open webcam")
+            self.logger.error(f"Failed to open camera {EYE_TRACKING_CAMERA_INDEX} for eye tracking")
+            messagebox.showerror("Error", f"Failed to open camera {EYE_TRACKING_CAMERA_INDEX} for eye tracking")
             return
 
         self.camera = Camera(cap, 30)
@@ -840,13 +842,13 @@ class HIDDigitizerGUI:
         self.logger.info("Eye tracking stopped")
 
     def start_hand_gesture(self) -> None:
-        """Start local hand gesture recognition using camera index 1."""
-        # Open camera index 1 (second camera)
-        cap = cv2.VideoCapture(0)
+        """Start local hand gesture recognition using gesture camera."""
+        # Open gesture camera (separate from eye tracking camera)
+        cap = cv2.VideoCapture(GESTURE_CAMERA_INDEX)
 
         if not cap.isOpened():
-            self.logger.error("Failed to open camera index 1 for gesture recognition")
-            messagebox.showerror("Error", "Failed to open camera index 1 for gesture recognition")
+            self.logger.error(f"Failed to open camera {GESTURE_CAMERA_INDEX} for gesture recognition")
+            messagebox.showerror("Error", f"Failed to open camera {GESTURE_CAMERA_INDEX} for gesture recognition")
             return
 
         # Initialize HandGestureRecognizer
@@ -972,11 +974,11 @@ class HIDDigitizerGUI:
                 )
                 return
 
-        # Open webcam
-        self._calibration_cap = cv2.VideoCapture(1)
+        # Open webcam (same camera as eye tracking)
+        self._calibration_cap = cv2.VideoCapture(EYE_TRACKING_CAMERA_INDEX)
         if not self._calibration_cap.isOpened():
-            self.logger.error("Failed to open webcam")
-            messagebox.showerror("Error", "Failed to open webcam")
+            self.logger.error(f"Failed to open camera {EYE_TRACKING_CAMERA_INDEX} for calibration")
+            messagebox.showerror("Error", f"Failed to open camera {EYE_TRACKING_CAMERA_INDEX} for calibration")
             return
 
         # Clear previous calibration data

@@ -110,7 +110,7 @@ class HandGestureRecognizer:
         min_tracking_confidence: float = 0.5,
         model_path: Optional[Path] = None,
         lstm_model_path: Optional[Path] = None,
-        lstm_confidence_threshold: float = 0.85,
+        lstm_confidence_threshold: float = 0.8,
         enable_continuous_gestures: bool = True,
         lstm_frame_skip: int = 3,
     ) -> None:

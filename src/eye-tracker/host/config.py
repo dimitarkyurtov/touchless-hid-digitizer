@@ -75,6 +75,12 @@ STATUS_COLOR_ERROR = "orange"
 # Logging
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
+# Camera indices
+# Eye tracking and calibration use the same camera (typically built-in webcam)
+EYE_TRACKING_CAMERA_INDEX = 1
+# Gesture recognition uses a separate camera (typically external USB camera)
+GESTURE_CAMERA_INDEX = 0
+
 # Eye tracking calibration mode
 # True: use gaze vector (pitch, yaw) + gaze origin (x, y) for polynomial regression (15 features, needs >= 15 points)
 # False: use only gaze vector (pitch, yaw) for polynomial regression (6 features, needs >= 6 points)

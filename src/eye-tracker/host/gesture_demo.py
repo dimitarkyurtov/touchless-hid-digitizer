@@ -12,9 +12,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.gesture_types import GestureType
+from config import GESTURE_CAMERA_INDEX
 from hand_gesture_recognizer import HandGestureRecognizer
 
-CAMERA_INDEX: int = 0
+# Default to gesture camera index from config, can be overridden via command line
+CAMERA_INDEX: int = GESTURE_CAMERA_INDEX
 WINDOW_NAME: str = "Hand Gesture Recognition Demo"
 DISPLAY_WIDTH: int = 640
 DISPLAY_HEIGHT: int = 480
