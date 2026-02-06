@@ -121,7 +121,7 @@ The system uses a distributed architecture with two main components:
 ### Eye Tracking
 
 The GazeNet model was trained on the following datasets:
-- **Mobile Face Gaze**: Pre-trained weights from [mobile-face-gaze](https://github.com/glefundes/mobile-face-gaze) project
+- **Mobile Face Gaze**: Trained based on [mobile-face-gaze](https://github.com/glefundes/mobile-face-gaze) project
 - Modified for macOS support with custom `gazenet.py` implementation
 
 ### Hand Gesture Recognition
