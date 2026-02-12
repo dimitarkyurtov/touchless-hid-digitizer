@@ -132,6 +132,7 @@ The GazeNet model was trained on the following datasets:
 - **LSTM Gesture Model**: Trained following the approach from [HandGestureRecognition-using-3D-Conv-and-CNN-RNN-Stack](https://github.com/sancharee/HandGestureRecognition-using-3D-Conv-and-CNN-RNN-Stack)
   - Architecture modifications for the specific gesture set (ThumbsUp, ThumbsDown)
   - Input dimensions: 10 frames × 120×120×3 RGB
+  - Direct link: https://drive.google.com/uc?id=1ehyrYBQ5rbQQe6yL4XbLWe3FMvuVUGiL
 
 ---
 
